@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#1b1f26">
+<meta name="description" content="ごく短い横移動で多視点フレームを取得する、動く立体写真カメラの検証用プロトタイプ。">
+<title>SLIDEBURST — 多視点バースト撮影テスト</title>
+<link rel="stylesheet" href="./css/base.css">
+<link rel="stylesheet" href="./css/layout.css">
+<link rel="stylesheet" href="./css/camera.css">
+<link rel="stylesheet" href="./css/controls.css">
+<link rel="stylesheet" href="./css/result.css">
+<link rel="stylesheet" href="./css/metrics.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wordmark">
+    <span class="wordmark__lenses" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+    <span class="wordmark__name">SLIDEBURST</span>
+  </div>
+  <p class="topbar__note" id="envNote">環境を確認中…</p>
+</header>
+
+<main>
+
+  <!-- ============ 撮影画面 ============ -->
+  <section class="view view--camera" id="viewCamera">
+
+    <div class="stage" id="stage">
+      <video id="preview" playsinline muted autoplay disablepictureinpicture></video>
+      <div class="stage__guide" aria-hidden="true">
+        <span class="stage__arrow">カメラを水平に横へ滑らせる</span>
+      </div>
+      <div class="stage__flash" id="flash" aria-hidden="true"></div>
+      <div class="stage__blocker" id="blocker">
+        <p class="stage__blockerText" id="blockerText">カメラを起動して検証を始めます。</p>
+        <button class="btn btn--primary" id="startCamera" type="button">カメラを起動</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <fieldset class="field">
+        <legend class="field__label">撮影時間</legend>
+        <div class="chips" id="durationChips" role="radiogroup" aria-label="撮影時間"></div>
+      </fieldset>
+
+      <div class="field field--row">
+        <label class="select">
+          <span class="select__label">記録解像度</span>
+          <select id="scaleSelect">
+            <option value="1">センサー出力のまま</option>
+            <option value="0.75">75%</option>
+            <option value="0.5" selected>50%（取りこぼしが少ない）</option>
+            <option value="0.35">35%</option>
+          </select>
+        </label>
+        <label class="select">
+          <span class="select__label">ストリーム設定</span>
+          <select id="modeSelect">
+            <option value="fps" selected>フレームレート優先 1280×720 / 60</option>
+            <option value="res">解像度優先 1920×1080 / 30</option>
+            <option value="max">上限なし（端末まかせ）</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="shutterRow">
+        <button class="iconBtn" id="flipCamera" type="button" aria-label="インカメラとアウトカメラを切り替え">
+          <span class="iconBtn__glyph" aria-hidden="true">⇄</span>
+          <span class="iconBtn__text" id="facingLabel">アウト</span>
+        </button>
+
+        <button class="shutter" id="shutter" type="button" disabled>
+          <span class="shutter__ring"></span>
+          <span class="shutter__core"></span>
+          <span class="shutter__text">撮る</span>
+        </button>
+
+        <button class="iconBtn" id="toResult" type="button" disabled>
+          <span class="iconBtn__glyph" aria-hidden="true">▤</span>
+          <span class="iconBtn__text">結果</span>
+        </button>
+      </div>
+
+      <p class="status" id="status" role="status">撮影時間を選んで、シャッターを押しながらカメラを横へ滑らせてください。</p>
+    </div>
+  </section>
+
+  <!-- ============ 結果画面 ============ -->
+  <section class="view view--result" id="viewResult" hidden>
+
+    <div class="loop">
+      <canvas id="loopCanvas"></canvas>
+      <div class="loop__badge" id="loopBadge">往復再生</div>
+    </div>
+
+    <div class="panel">
+      <fieldset class="field">
+        <legend class="field__label">コマ数</legend>
+        <div class="chips" id="frameModeChips" role="radiogroup" aria-label="コマ数"></div>
+      </fieldset>
+
+      <div class="field field--row">
+        <label class="range">
+          <span class="range__label">再生速度 <output id="fpsOut">12</output> fps</span>
+          <input type="range" id="fpsRange" min="2" max="30" step="1" value="12">
+        </label>
+        <label class="toggle">
+          <input type="checkbox" id="pingpongToggle" checked>
+          <span>往復再生（1→N→2）</span>
+        </label>
+      </div>
+
+      <div class="field">
+        <label class="range">
+          <span class="range__label">コマ送り <output id="scrubOut">1 / 1</output></span>
+          <input type="range" id="scrubRange" min="0" max="0" step="1" value="0">
+        </label>
+        <div class="scrubRow">
+          <button class="btn btn--ghost" id="prevFrame" type="button">◀ 前</button>
+          <button class="btn btn--ghost" id="playToggle" type="button">停止</button>
+          <button class="btn btn--ghost" id="nextFrame" type="button">次 ▶</button>
+        </div>
+      </div>
+    </div>
+
+    <h2 class="sectionTitle">取得フレーム <span id="stripCount"></span></h2>
+    <div class="strip" id="strip"></div>
+
+    <h2 class="sectionTitle">計測結果</h2>
+    <dl class="metrics" id="metrics"></dl>
+    <p class="metrics__verdict" id="verdict"></p>
+
+    <div class="resultActions">
+      <button class="btn btn--primary" id="backToCamera" type="button">撮り直す</button>
+      <button class="btn btn--ghost" id="copyMetrics" type="button">計測結果をコピー</button>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <span id="buildTag"></span>
+  <span>© 2026 egoaid</span>
+</footer>
+
+<script type="module" src="./js/main.js"></script>
+</body>
+</html>

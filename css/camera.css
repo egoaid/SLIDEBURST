@@ -1,0 +1,124 @@
+/* camera.css — プレビュー・撮影ガイド・シャッター */
+
+.stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  background: #000;
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+#preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: #000;
+}
+
+#preview.is-mirrored { transform: scaleX(-1); }
+
+/* 横移動を促すガイド。水平線1本と方向表示だけに絞る */
+.stage__guide {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.stage__guide::before {
+  content: "";
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  height: 1px;
+  background: repeating-linear-gradient(to right, rgba(236,231,222,.55) 0 10px, transparent 10px 20px);
+}
+.stage__arrow {
+  position: absolute;
+  bottom: 14px;
+  font-size: 11.5px;
+  color: rgba(236,231,222,.85);
+  background: rgba(18,22,28,.55);
+  padding: 4px 10px;
+  border-radius: 999px;
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+.stage__flash {
+  position: absolute;
+  inset: 0;
+  background: var(--paper);
+  opacity: 0;
+  pointer-events: none;
+}
+.stage__flash.is-firing { animation: flash 220ms ease-out; }
+@keyframes flash {
+  0% { opacity: .55; }
+  100% { opacity: 0; }
+}
+
+.stage.is-recording { box-shadow: inset 0 0 0 3px var(--lens-4); }
+
+.stage__blocker {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+  text-align: center;
+  background: var(--slate-800);
+}
+.stage__blocker[hidden] { display: none; }
+.stage__blockerText { font-size: 14px; color: var(--paper-dim); max-width: 34ch; }
+
+.shutterRow {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.shutter {
+  position: relative;
+  width: 86px;
+  height: 86px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  justify-self: center;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.shutter:disabled { opacity: .35; cursor: default; }
+
+.shutter__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--paper);
+}
+.shutter__core {
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background: linear-gradient(160deg, #f7f4ee, #c8c2b6);
+  transition: transform 120ms ease;
+}
+.shutter:active .shutter__core { transform: scale(.9); }
+.shutter__text {
+  position: relative;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--slate-900);
+}
+.shutter.is-busy .shutter__core { background: var(--lens-4); }
+.shutter.is-busy .shutter__text { color: var(--paper); }

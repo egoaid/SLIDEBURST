@@ -1,0 +1,10 @@
+Copyright © 2026 egoaid
+All rights reserved.
+
+本ソフトウェアおよび関連ファイルの著作権は egoaid に帰属します。
+権利者の書面による事前の許可なく、複製、改変、再配布、公開、
+二次利用を行うことはできません。
+
+This software and its associated files are proprietary.
+No part of it may be copied, modified, redistributed, published,
+or otherwise used without the prior written permission of the copyright holder.

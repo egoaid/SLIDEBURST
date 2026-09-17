@@ -1,0 +1,69 @@
+/* base.css — 変数・リセット・タイポグラフィ
+   SLIDEBURST © 2026 egoaid / All rights reserved. */
+
+:root {
+  /* 暗室のスレート。プレビューを最も明るい面にするための下地 */
+  --slate-900: #12161c;
+  --slate-800: #1b1f26;
+  --slate-700: #262c35;
+  --slate-600: #39414c;
+  --paper:     #ece7de;
+  --paper-dim: #b9b2a6;
+
+  /* Nimsloの4眼に対応した識別色。装飾ではなく視点番号の符号として使う */
+  --lens-1: #35c8d8;
+  --lens-2: #7ad46a;
+  --lens-3: #f2c23b;
+  --lens-4: #e0559b;
+
+  --ok:   #7ad46a;
+  --warn: #f2c23b;
+  --ng:   #ff6b5e;
+
+  --font-ui: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  --font-num: ui-monospace, "SF Mono", Menlo, monospace;
+
+  --gap: 14px;
+  --radius: 10px;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--slate-900);
+  color: var(--paper);
+  font-family: var(--font-ui);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+h1, h2, p, dl, dd, dt, fieldset, legend, figure {
+  margin: 0;
+  padding: 0;
+}
+
+fieldset { border: 0; }
+
+button, input, select, output {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--lens-1);
+  outline-offset: 2px;
+}
+
+::selection { background: var(--lens-1); color: var(--slate-900); }
+
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}

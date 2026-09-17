@@ -1,0 +1,77 @@
+/* result.css — ループ再生ビューとフレーム一覧 */
+
+.loop {
+  position: relative;
+  width: 100%;
+  background: #000;
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-top: 4px;
+}
+#loopCanvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.loop__badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  font-size: 11px;
+  font-family: var(--font-num);
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(18,22,28,.6);
+  color: var(--paper);
+}
+
+.scrubRow {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.scrubRow .btn { flex: 1; padding: 9px 4px; font-size: 13px; }
+
+.strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+  gap: 6px;
+}
+
+.frameCell {
+  position: relative;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #000;
+  border: 1px solid var(--slate-700);
+  cursor: pointer;
+  padding: 0;
+}
+.frameCell canvas { display: block; width: 100%; height: auto; }
+.frameCell__no {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  font-family: var(--font-num);
+  font-size: 10px;
+  padding: 1px 5px;
+  background: rgba(18,22,28,.7);
+  color: var(--paper);
+}
+.frameCell.is-used { border-color: var(--lens-1); }
+.frameCell.is-current { border-color: var(--paper); box-shadow: 0 0 0 2px var(--paper); }
+.frameCell.is-dropped::after {
+  content: "";
+  position: absolute;
+  top: 0; right: 0;
+  width: 0; height: 0;
+  border-top: 12px solid var(--ng);
+  border-left: 12px solid transparent;
+}
+
+.resultActions {
+  display: flex;
+  gap: 10px;
+  margin: 20px 0 8px;
+}
+.resultActions .btn { flex: 1; }

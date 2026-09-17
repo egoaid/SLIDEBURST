@@ -1,0 +1,78 @@
+/* layout.css — 画面骨格・ヘッダー・フッター */
+
+body {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+main {
+  flex: 1;
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 0 var(--gap) calc(var(--gap) + var(--safe-b));
+}
+
+.view { display: block; }
+.view[hidden] { display: none; }
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px var(--gap) 8px;
+  background: linear-gradient(var(--slate-900) 70%, rgba(18, 22, 28, 0));
+}
+
+.wordmark { display: flex; align-items: center; gap: 8px; }
+
+.wordmark__name {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+/* 4つの点はNimsloのレンズ列。フレーム識別色と同じ順に並ぶ */
+.wordmark__lenses { display: flex; gap: 3px; }
+.wordmark__lenses i {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--lens-1);
+}
+.wordmark__lenses i:nth-child(2) { background: var(--lens-2); }
+.wordmark__lenses i:nth-child(3) { background: var(--lens-3); }
+.wordmark__lenses i:nth-child(4) { background: var(--lens-4); }
+
+.topbar__note {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--paper-dim);
+  text-align: right;
+  max-width: 55%;
+}
+
+.sectionTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--paper-dim);
+  margin: 22px 0 8px;
+  border-bottom: 1px solid var(--slate-700);
+  padding-bottom: 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px var(--gap) calc(14px + var(--safe-b));
+  font-size: 11px;
+  color: var(--slate-600);
+  font-family: var(--font-num);
+}
