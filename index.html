@@ -26,6 +26,7 @@
 <link rel="stylesheet" href="./css/controls.css">
 <link rel="stylesheet" href="./css/result.css">
 <link rel="stylesheet" href="./css/editor.css">
+<link rel="stylesheet" href="./css/library.css">
 <link rel="stylesheet" href="./css/export.css">
 <link rel="stylesheet" href="./css/metrics.css">
 </head>
@@ -48,6 +49,9 @@
       <video id="preview" playsinline muted autoplay disablepictureinpicture></video>
       <div class="stage__guide" aria-hidden="true">
         <span class="stage__arrow">カメラを水平に横へ滑らせる</span>
+      </div>
+      <div class="stage__frameGuide" id="frameGuide" hidden aria-hidden="true">
+        <span class="stage__frameGuideLabel" id="frameGuideLabel">4:3</span>
       </div>
       <div class="stage__flash" id="flash" aria-hidden="true"></div>
       <div class="stage__blocker" id="blocker">
@@ -80,6 +84,11 @@
       <fieldset class="field">
         <legend class="field__label">撮影時間</legend>
         <div class="chips" id="durationChips" role="radiogroup" aria-label="撮影時間"></div>
+      </fieldset>
+
+      <fieldset class="field">
+        <legend class="field__label">構図ガイド（撮影範囲は変わりません）</legend>
+        <div class="chips" id="guideChips" role="radiogroup" aria-label="構図ガイド"></div>
       </fieldset>
 
       <div class="field field--row">
@@ -124,6 +133,7 @@
       <button class="tab" role="tab" data-tab="look" aria-selected="false">加工</button>
       <button class="tab" role="tab" data-tab="draw" aria-selected="false">落書き</button>
       <button class="tab" role="tab" data-tab="save" aria-selected="false">保存</button>
+      <button class="tab" role="tab" data-tab="lib" aria-selected="false">作品</button>
       <button class="tab" role="tab" data-tab="data" aria-selected="false">検証</button>
     </nav>
 
@@ -155,6 +165,16 @@
           <button class="btn btn--ghost" id="nextFrame" type="button">次 ▶</button>
         </div>
       </div>
+
+      <fieldset class="field">
+        <legend class="field__label">作品の縦横比</legend>
+        <div class="chips" id="aspectChips" role="radiogroup" aria-label="作品の縦横比"></div>
+        <label class="range">
+          <span class="range__label">切り出す位置 <output id="offsetOut">中央</output></span>
+          <input type="range" id="offsetRange" min="0" max="100" step="1" value="50">
+        </label>
+        <p class="hint">元のフレームはそのまま残るので、あとから何度でも切り直せます。</p>
+      </fieldset>
     </div>
 
     <!-- 加工 -->
@@ -162,6 +182,26 @@
       <fieldset class="field">
         <legend class="field__label">フィルター</legend>
         <div class="chips chips--filters" id="filterChips" role="radiogroup" aria-label="フィルター"></div>
+      </fieldset>
+
+      <div class="field">
+        <label class="range">
+          <span class="range__label">フィルターの強さ <output id="intensityOut">100</output>%</span>
+          <input type="range" id="intensityRange" min="0" max="150" step="5" value="100">
+        </label>
+      </div>
+
+      <fieldset class="field">
+        <legend class="field__label">ブラウン管</legend>
+        <label class="toggle">
+          <input type="checkbox" id="crtToggle">
+          <span>ブラウン管テレビに映す</span>
+        </label>
+        <label class="range">
+          <span class="range__label">強さ <output id="crtOut">100</output>%</span>
+          <input type="range" id="crtRange" min="20" max="150" step="5" value="100">
+        </label>
+        <p class="hint">VHS や Hi8 と重ねると、テレビで再生した映像のようになります。4:3 と相性がよいです。</p>
       </fieldset>
 
       <fieldset class="field">
@@ -203,6 +243,19 @@
         <p class="hint" id="formatHint"></p>
       </fieldset>
 
+      <fieldset class="field">
+        <legend class="field__label">動画の長さ</legend>
+        <div class="chips" id="durationExportChips" role="radiogroup" aria-label="動画の長さ"></div>
+        <p class="hint" id="loopInfo"></p>
+      </fieldset>
+
+      <fieldset class="field">
+        <legend class="field__label">書き出し枠</legend>
+        <div class="chips" id="socialChips" role="radiogroup" aria-label="書き出し枠"></div>
+        <div class="chips" id="backgroundChips" role="radiogroup" aria-label="余白の色"></div>
+        <p class="hint">作品は切らずに、この枠の中へ収めます。元の作品は変わりません。</p>
+      </fieldset>
+
       <div class="field field--row">
         <label class="select">
           <span class="select__label">サイズ</span>
@@ -210,14 +263,6 @@
             <option value="480">480px（軽い）</option>
             <option value="720" selected>720px（標準）</option>
             <option value="1080">元のまま</option>
-          </select>
-        </label>
-        <label class="select">
-          <span class="select__label">長さ</span>
-          <select id="exportLoops">
-            <option value="2">2往復</option>
-            <option value="4" selected>4往復</option>
-            <option value="8">8往復</option>
           </select>
         </label>
       </div>
@@ -228,6 +273,12 @@
         <a class="btn btn--ghost btn--wide" id="downloadLink" download>ダウンロード</a>
         <button class="btn btn--primary btn--wide" id="shareBtn" type="button">共有して写真に保存</button>
       </div>
+    </div>
+
+    <!-- 作品 -->
+    <div class="tabPanel" data-panel="lib" hidden>
+      <p class="hint" id="libNote">撮った作品はこの端末の中だけに保存されます。どこにも送信されません。</p>
+      <div class="library" id="library"></div>
     </div>
 
     <!-- 検証 -->

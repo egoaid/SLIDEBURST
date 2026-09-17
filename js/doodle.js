@@ -7,6 +7,7 @@ export class Doodle {
     this.ctx = this.canvas.getContext('2d');
     this.items = [];
     this.current = null;
+    this.version = 0;
     this.onChange = null;
   }
 
@@ -83,6 +84,7 @@ export class Doodle {
       ctx.stroke();
       ctx.restore();
     }
+    this.version++;
     if (this.onChange) this.onChange();
   }
 }

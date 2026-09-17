@@ -32,10 +32,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * 往復シーケンスを指定回数くり返して録画する。
- * @param {Object} o {compositor, sequence, fps, width, height, loops, onProgress}
+ * @param {Object} o {render, sequence, fps, width, height, loops, onProgress}
  * @returns {Promise<Blob>}
  */
-export async function encodeVideo({ compositor, sequence, fps, width, height, loops = 4, onProgress }) {
+export async function encodeVideo({ render, sequence, fps, width, height, loops = 4, onProgress }) {
   const mime = pickMimeType();
   if (!videoSupported() || !mime) {
     throw new Error('このブラウザは動画の書き出しに対応していません。GIFで保存してください。');
@@ -48,7 +48,7 @@ export async function encodeVideo({ compositor, sequence, fps, width, height, lo
   document.body.append(canvas);
   const ctx = canvas.getContext('2d', { alpha: false });
 
-  compositor.renderTo(ctx, sequence[0], width, height);
+  render(ctx, sequence[0], width, height);
 
   const stream = canvas.captureStream(Math.max(30, fps * 2));
   const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 10000000 });
@@ -64,7 +64,7 @@ export async function encodeVideo({ compositor, sequence, fps, width, height, lo
   try {
     for (let l = 0; l < loops; l++) {
       for (let i = 0; i < sequence.length; i++) {
-        compositor.renderTo(ctx, sequence[i], width, height);
+        render(ctx, sequence[i], width, height);
         const track = stream.getVideoTracks()[0];
         if (track && typeof track.requestFrame === 'function') {
           try { track.requestFrame(); } catch (e) { /* fps指定のストリームでは無視されることがある */ }

@@ -187,10 +187,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * ループGIFを作る。
- * @param {Object} o {compositor, sequence, fps, width, height, onProgress}
+ * @param {Object} o {render, sequence, fps, width, height, onProgress}
  * @returns {Promise<Blob>}
  */
-export async function encodeGIF({ compositor, sequence, fps, width, height, onProgress }) {
+export async function encodeGIF({ render, sequence, fps, width, height, onProgress }) {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -200,7 +200,7 @@ export async function encodeGIF({ compositor, sequence, fps, width, height, onPr
   const unique = [...new Set(sequence)];
   const buffers = new Map();
   for (let i = 0; i < unique.length; i++) {
-    compositor.renderTo(ctx, unique[i], width, height);
+    render(ctx, unique[i], width, height);
     buffers.set(unique[i], ctx.getImageData(0, 0, width, height).data);
     if (onProgress) onProgress(0.1 + (0.25 * (i + 1)) / unique.length, 'コマを準備中');
     await sleep(0);

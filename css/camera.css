@@ -122,3 +122,23 @@
 }
 .shutter.is-busy .shutter__core { background: var(--lens-4); }
 .shutter.is-busy .shutter__text { color: var(--paper); }
+
+/* 撮影範囲は変えず、構図の目安だけを重ねる */
+.stage__frameGuide {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(236, 231, 222, 0.9);
+  box-shadow: 0 0 0 100vmax rgba(5, 7, 10, 0.34);
+  pointer-events: none;
+}
+.stage__frameGuide[hidden] { display: none; }
+.stage__frameGuideLabel {
+  position: absolute;
+  top: 4px;
+  left: 6px;
+  font-family: var(--font-num);
+  font-size: 10px;
+  color: rgba(236, 231, 222, 0.9);
+}

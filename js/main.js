@@ -4,13 +4,15 @@
 
 import {
   APP, DURATIONS, DEFAULT_DURATION_MS, FRAME_MODES, DEFAULT_FRAME_MODE,
-  DEFAULT_PLAY_FPS, STAMP_COLORS, EMOJI_SET, PEN_COLORS, EXPORT_FORMATS
+  DEFAULT_PLAY_FPS, STAMP_COLORS, EMOJI_SET, PEN_COLORS, EXPORT_FORMATS,
+  EXPORT_DURATIONS, DEFAULT_EXPORT_SECONDS, SOCIAL_FRAMES, BACKGROUNDS, GUIDES
 } from './config.js';
 import { $, browserLabel, isSecure, supportsRVFC } from './utils.js';
 import { Camera, describeCameraError } from './camera.js';
 import { FramePool, burstCapture } from './capture.js';
-import { FrameStore } from './frames.js';
+import { FrameStore, makeThumbnail } from './frames.js';
 import { Compositor } from './compose.js';
+import { ASPECTS, ratioOf, hasVerticalRoom } from './crop.js';
 import { Doodle } from './doodle.js';
 import { FILTERS } from './filters.js';
 import { defaultStampText } from './datestamp.js';
@@ -19,6 +21,11 @@ import { analyze, renderMetrics, verdict, toText } from './metrics.js';
 import { encodeGIF } from './export-gif.js';
 import { encodeVideo, videoSupported, pickMimeType, extensionFor } from './export-video.js';
 import { timestampName, shareFile, attachDownload } from './share.js';
+import {
+  storageAvailable, newCaptureId, canvasToBlob, saveCapture, updateCapture,
+  listCaptures, getCapture, loadFrameBlobs, deleteCapture, blobToCanvas, estimateUsage
+} from './storage.js';
+import { renderLibrary } from './library.js';
 import {
   buildChips, selectChip, buildSwatches, buildEmojiGrid, clearEmojiSelection,
   setupTabs, showTab, setStatus, showView, fireFlash, renderStrip, markStripUsage, setExportStatus
@@ -43,9 +50,14 @@ const state = {
   penSize: 8,
   emoji: null,
   format: 'mp4',
+  exportSeconds: DEFAULT_EXPORT_SECONDS,
+  socialFrame: 'artwork',
+  background: 'blur',
   exporting: false,
   lastBlob: null,
-  lastName: ''
+  lastName: '',
+  captureId: null,
+  saveTimer: null
 };
 
 /* ---------- 環境表示 ---------- */
@@ -54,6 +66,7 @@ function showEnvironment() {
   const bits = [browserLabel()];
   bits.push(supportsRVFC() ? 'rVFC 対応' : 'rVFC 非対応');
   if (!videoSupported() || !pickMimeType()) bits.push('動画書き出し不可');
+  if (!storageAvailable()) bits.push('保存不可');
   if (!isSecure()) bits.push('HTTPSでないためカメラを使えません');
   $('envNote').textContent = bits.join(' · ');
   $('buildTag').textContent = APP.name + ' v' + APP.version + ' build ' + APP.build;
@@ -73,6 +86,13 @@ function setupCameraControls() {
     }
   );
   $('shutterText').textContent = (DEFAULT_DURATION_MS / 1000).toFixed(2) + 's';
+
+  buildChips(
+    $('guideChips'),
+    GUIDES.map((g) => ({ value: g.id, label: g.label })),
+    'off',
+    setGuide
+  );
 
   $('scaleSelect').addEventListener('change', (e) => {
     state.scale = Number(e.target.value);
@@ -95,6 +115,26 @@ function setupCameraControls() {
   $('flipCamera').addEventListener('click', flipCamera);
   $('shutter').addEventListener('click', shoot);
   $('toResult').addEventListener('click', () => { if (store.count) showView('result'); });
+}
+
+/* プレビューに重ねる構図ガイド。撮影する範囲そのものは変わらない */
+function setGuide(id) {
+  const guide = GUIDES.find((g) => g.id === id) || GUIDES[0];
+  const el = $('frameGuide');
+  if (!guide.ratio) {
+    el.hidden = true;
+    return;
+  }
+  const stageRatio = 3 / 4;
+  if (guide.ratio >= stageRatio) {
+    el.style.width = '100%';
+    el.style.height = ((stageRatio / guide.ratio) * 100).toFixed(2) + '%';
+  } else {
+    el.style.height = '100%';
+    el.style.width = ((guide.ratio / stageRatio) * 100).toFixed(2) + '%';
+  }
+  $('frameGuideLabel').textContent = guide.label;
+  el.hidden = false;
 }
 
 async function startCamera() {
@@ -169,10 +209,13 @@ function handleResult(result) {
   state.metrics = analyze(result, camera.settings());
 
   compositor.invalidate();
+  compositor.setAspect('src');
+  compositor.setOffsetY(0.5);
   doodle.clear();
   doodle.setSize(result.width, result.height);
-  $('stampText').value = defaultStampText();
-  compositor.setStamp({ text: $('stampText').value });
+  compositor.setStamp({ text: defaultStampText() });
+  $('stampText').value = compositor.stamp.text;
+  syncUIFromCompositor();
   resetExportResult();
 
   $('toResult').disabled = false;
@@ -182,27 +225,31 @@ function handleResult(result) {
   showView('result');
   showTab($('tabs'), 'play');
   setDrawing(false);
+  persistNewCapture(result);
 }
 
-/* ---------- 再生 ---------- */
+/* ---------- 再生・構図 ---------- */
 
 function setupPlayControls() {
   buildChips(
     $('frameModeChips'),
     FRAME_MODES.map((m) => ({ value: m.count, label: m.label })),
     DEFAULT_FRAME_MODE,
-    (count) => { store.setFrameMode(count); syncSequenceUI(); }
+    (count) => { store.setFrameMode(count); syncSequenceUI(); scheduleSave(); }
   );
 
   $('fpsRange').addEventListener('input', (e) => {
     player.fps = Number(e.target.value);
     $('fpsOut').textContent = e.target.value;
+    updateLoopInfo();
+    scheduleSave();
   });
 
   $('pingpongToggle').addEventListener('change', (e) => {
     store.setPingPong(e.target.checked);
     $('loopBadge').textContent = e.target.checked ? '往復再生' : '片道再生';
     syncSequenceUI();
+    scheduleSave();
   });
 
   $('scrubRange').addEventListener('input', (e) => {
@@ -221,11 +268,40 @@ function setupPlayControls() {
     showView('camera');
   });
 
+  buildChips(
+    $('aspectChips'),
+    ASPECTS.map((a) => ({ value: a.id, label: a.label })),
+    'src',
+    (id) => {
+      compositor.setAspect(id);
+      updateOffsetAvailability();
+      player.refresh();
+      resetExportResult();
+      updateLoopInfo();
+      scheduleSave();
+    }
+  );
+
+  $('offsetRange').addEventListener('input', (e) => {
+    const v = Number(e.target.value) / 100;
+    compositor.setOffsetY(v);
+    $('offsetOut').textContent = v < 0.34 ? '上より' : v > 0.66 ? '下より' : '中央';
+    player.refresh();
+    resetExportResult();
+    scheduleSave();
+  });
+
   player.onPosChange = (pos, sourceIndex) => {
     $('scrubRange').value = String(pos);
     $('scrubOut').textContent = (pos + 1) + ' / ' + store.sequence.length + '（元コマ ' + (sourceIndex + 1) + '）';
     markStripUsage($('strip'), store, sourceIndex);
   };
+}
+
+function updateOffsetAvailability() {
+  const { width, height } = compositor.sourceSize;
+  const room = width ? hasVerticalRoom(width, height, ratioOf(compositor.aspectId)) : false;
+  $('offsetRange').disabled = !room;
 }
 
 function pausePlayback() {
@@ -242,6 +318,7 @@ function syncSequenceUI() {
   $('scrubRange').max = String(Math.max(0, store.sequence.length - 1));
   player.setPos(0);
   markStripUsage($('strip'), store, store.sourceIndexAt(0));
+  updateLoopInfo();
   resetExportResult();
 }
 
@@ -252,8 +329,11 @@ function renderResult() {
     pausePlayback();
     player.setPos(pos >= 0 ? pos : 0);
   });
-  renderMetrics($('metrics'), state.metrics);
-  $('verdict').textContent = verdict(state.metrics);
+  if (state.metrics) {
+    renderMetrics($('metrics'), state.metrics);
+    $('verdict').textContent = verdict(state.metrics);
+  }
+  updateOffsetAvailability();
   syncSequenceUI();
   player.play();
   $('playToggle').textContent = '停止';
@@ -270,8 +350,33 @@ function setupLookControls() {
       compositor.setFilter(id);
       player.refresh();
       resetExportResult();
+      scheduleSave();
     }
   );
+
+  $('intensityRange').addEventListener('input', (e) => {
+    const k = Number(e.target.value) / 100;
+    $('intensityOut').textContent = e.target.value;
+    compositor.setIntensity(k);
+    player.refresh();
+    resetExportResult();
+    scheduleSave();
+  });
+
+  $('crtToggle').addEventListener('change', (e) => {
+    compositor.setCRT(e.target.checked);
+    player.refresh();
+    resetExportResult();
+    scheduleSave();
+  });
+
+  $('crtRange').addEventListener('input', (e) => {
+    $('crtOut').textContent = e.target.value;
+    compositor.setCRT(compositor.crt, Number(e.target.value) / 100);
+    player.refresh();
+    resetExportResult();
+    scheduleSave();
+  });
 
   buildChips(
     $('stampColorChips'),
@@ -281,6 +386,7 @@ function setupLookControls() {
       compositor.setStamp({ color: value });
       player.refresh();
       resetExportResult();
+      scheduleSave();
     }
   );
 
@@ -288,15 +394,34 @@ function setupLookControls() {
     compositor.setStamp({ enabled: e.target.checked });
     player.refresh();
     resetExportResult();
+    scheduleSave();
   });
 
   $('stampText').addEventListener('input', (e) => {
     compositor.setStamp({ text: e.target.value });
     player.refresh();
     resetExportResult();
+    scheduleSave();
   });
   $('stampText').value = defaultStampText();
   compositor.setStamp({ text: $('stampText').value });
+}
+
+/* 保存した編集内容を画面へ戻す */
+function syncUIFromCompositor() {
+  selectChip($('filterChips'), compositor.filterId);
+  selectChip($('aspectChips'), compositor.aspectId);
+  selectChip($('stampColorChips'), compositor.stamp.color);
+  $('intensityRange').value = String(Math.round(compositor.intensity * 100));
+  $('intensityOut').textContent = $('intensityRange').value;
+  $('crtToggle').checked = compositor.crt;
+  $('crtRange').value = String(Math.round(compositor.crtStrength * 100));
+  $('crtOut').textContent = $('crtRange').value;
+  $('offsetRange').value = String(Math.round(compositor.offsetY * 100));
+  $('offsetOut').textContent = compositor.offsetY < 0.34 ? '上より' : compositor.offsetY > 0.66 ? '下より' : '中央';
+  $('stampToggle').checked = compositor.stamp.enabled;
+  $('stampText').value = compositor.stamp.text || '';
+  updateOffsetAvailability();
 }
 
 /* ---------- 落書き ---------- */
@@ -325,6 +450,7 @@ function setupDrawControls() {
   doodle.onChange = () => {
     player.refresh();
     resetExportResult();
+    scheduleSave();
   };
 
   setupDrawSurface();
@@ -336,12 +462,16 @@ function setDrawing(on) {
   if (on) pausePlayback();
 }
 
+/* 表示中の作品の座標から、元フレームの座標へ戻す */
 function surfacePoint(e) {
   const canvas = $('loopCanvas');
   const rect = canvas.getBoundingClientRect();
+  const crop = compositor.rect;
+  const nx = (e.clientX - rect.left) / rect.width;
+  const ny = (e.clientY - rect.top) / rect.height;
   return {
-    x: ((e.clientX - rect.left) / rect.width) * canvas.width,
-    y: ((e.clientY - rect.top) / rect.height) * canvas.height
+    x: crop.x + nx * crop.width,
+    y: crop.y + ny * crop.height
   };
 }
 
@@ -353,13 +483,13 @@ function setupDrawSurface() {
     e.preventDefault();
     const p = surfacePoint(e);
     if (state.drawMode === 'emoji' && state.emoji) {
-      const size = $('loopCanvas').width * (0.08 + state.penSize / 120);
+      const size = compositor.rect.width * (0.08 + state.penSize / 120);
       doodle.stamp(state.emoji, p.x, p.y, size);
       return;
     }
     drawing = true;
     layer.setPointerCapture(e.pointerId);
-    const size = ($('loopCanvas').width / 360) * state.penSize;
+    const size = (compositor.rect.width / 360) * state.penSize;
     doodle.beginStroke(state.penColor, size);
     doodle.addPoint(p.x, p.y);
   });
@@ -381,23 +511,39 @@ function setupDrawSurface() {
   layer.addEventListener('pointerleave', end);
 }
 
-/* ---------- 保存 ---------- */
+/* ---------- 保存（書き出し） ---------- */
 
 function setupExportControls() {
   buildChips(
     $('formatChips'),
     EXPORT_FORMATS.map((f) => ({ value: f.id, label: f.label })),
     'mp4',
-    (id) => {
-      state.format = id;
-      updateFormatHint();
-      resetExportResult();
-    }
+    (id) => { state.format = id; updateFormatHint(); updateLoopInfo(); resetExportResult(); }
   );
-  updateFormatHint();
 
+  buildChips(
+    $('durationExportChips'),
+    EXPORT_DURATIONS.map((d) => ({ value: d.value, label: d.label })),
+    DEFAULT_EXPORT_SECONDS,
+    (sec) => { state.exportSeconds = sec; updateLoopInfo(); resetExportResult(); }
+  );
+
+  buildChips(
+    $('socialChips'),
+    SOCIAL_FRAMES.map((f) => ({ value: f.id, label: f.label })),
+    'artwork',
+    (id) => { state.socialFrame = id; resetExportResult(); }
+  );
+
+  buildChips(
+    $('backgroundChips'),
+    BACKGROUNDS.map((b) => ({ value: b.id, label: b.label })),
+    'blur',
+    (id) => { state.background = id; resetExportResult(); }
+  );
+
+  updateFormatHint();
   $('exportSize').addEventListener('change', resetExportResult);
-  $('exportLoops').addEventListener('change', resetExportResult);
   $('exportBtn').addEventListener('click', runExport);
   $('shareBtn').addEventListener('click', doShare);
   $('quickSave').addEventListener('click', () => {
@@ -426,7 +572,29 @@ function updateFormatHint() {
     hint = 'このブラウザでは動画を書き出せません。GIFを選んでください。';
   }
   $('formatHint').textContent = hint;
-  $('exportLoops').disabled = state.format === 'gif';
+  $('durationExportChips').classList.toggle('is-disabled', state.format === 'gif');
+}
+
+/* 作品は短いまま、書き出しでくり返す */
+function loopCount() {
+  const loopMs = (store.sequence.length / (player.fps || 10)) * 1000;
+  if (!loopMs) return 1;
+  return Math.max(1, Math.round((state.exportSeconds * 1000) / loopMs));
+}
+
+function updateLoopInfo() {
+  if (!store.sequence.length) {
+    $('loopInfo').textContent = '';
+    return;
+  }
+  const loopMs = (store.sequence.length / (player.fps || 10)) * 1000;
+  if (state.format === 'gif') {
+    $('loopInfo').textContent = 'GIFは長さの指定なしで、無限にループします（1周 ' + Math.round(loopMs) + ' ms）。';
+    return;
+  }
+  const n = loopCount();
+  $('loopInfo').textContent = '1周 ' + Math.round(loopMs) + ' ms を ' + n + '回くり返して、約 ' +
+    (Math.round(loopMs * n) / 1000).toFixed(1) + ' 秒にします。';
 }
 
 function resetExportResult() {
@@ -436,14 +604,28 @@ function resetExportResult() {
   setExportStatus('');
 }
 
-function exportSize() {
-  const { width, height } = compositor.size;
+/* 書き出しの画面サイズ。作品の比率、または書き出し枠から決める */
+function exportBox() {
+  const art = compositor.size;
   const target = Number($('exportSize').value);
-  const longSide = Math.max(width, height);
+  const frame = SOCIAL_FRAMES.find((f) => f.id === state.socialFrame);
+  const ratio = frame ? frame.ratio : null;
+  const even = (v) => Math.max(2, Math.round(v / 2) * 2);
+
+  if (ratio) {
+    const long = target >= 1080 ? Math.max(art.width, art.height) : target;
+    return ratio >= 1
+      ? { width: even(long), height: even(long / ratio), framed: true }
+      : { width: even(long * ratio), height: even(long), framed: true };
+  }
+  const longSide = Math.max(art.width, art.height);
   const scale = target >= 1080 ? 1 : Math.min(1, target / longSide);
-  // H.264 は偶数サイズを要求するので、2の倍数へ丸める
-  const even = (v) => Math.max(2, Math.round(v * scale / 2) * 2);
-  return { width: even(width), height: even(height) };
+  return { width: even(art.width * scale), height: even(art.height * scale), framed: false };
+}
+
+function makeRenderer(framed) {
+  if (!framed) return (ctx, index, w, h) => compositor.renderTo(ctx, index, w, h);
+  return (ctx, index, w, h) => compositor.renderFramed(ctx, index, w, h, state.background);
 }
 
 async function runExport() {
@@ -453,7 +635,8 @@ async function runExport() {
   pausePlayback();
   resetExportResult();
 
-  const size = exportSize();
+  const box = exportBox();
+  const render = makeRenderer(box.framed);
   const fps = player.fps;
   const onProgress = (p, label) => setExportStatus(label + ' ' + Math.round(p * 100) + '%', p);
 
@@ -462,24 +645,15 @@ async function runExport() {
     if (state.format === 'gif') {
       setExportStatus('GIFを作っています…', 0.05);
       blob = await encodeGIF({
-        compositor,
-        sequence: store.sequence,
-        fps,
-        width: size.width,
-        height: size.height,
-        onProgress
+        render, sequence: store.sequence, fps,
+        width: box.width, height: box.height, onProgress
       });
       name = timestampName('gif');
     } else {
       setExportStatus('動画を録っています…', 0.05);
       blob = await encodeVideo({
-        compositor,
-        sequence: store.sequence,
-        fps,
-        width: size.width,
-        height: size.height,
-        loops: Number($('exportLoops').value),
-        onProgress
+        render, sequence: store.sequence, fps,
+        width: box.width, height: box.height, loops: loopCount(), onProgress
       });
       name = timestampName(extensionFor(pickMimeType()));
     }
@@ -489,7 +663,8 @@ async function runExport() {
     attachDownload($('downloadLink'), blob, name);
     $('exportResult').hidden = false;
     const kb = Math.round(blob.size / 1024);
-    setExportStatus('できました（' + name + ' / ' + (kb > 1024 ? (kb / 1024).toFixed(1) + 'MB' : kb + 'KB') + '）。共有から写真に保存できます。');
+    setExportStatus('できました（' + box.width + '×' + box.height + ' / ' +
+      (kb > 1024 ? (kb / 1024).toFixed(1) + 'MB' : kb + 'KB') + '）。共有から写真に保存できます。');
   } catch (err) {
     setExportStatus(err && err.message ? err.message : '書き出しに失敗しました。サイズを小さくして試してください。');
   } finally {
@@ -509,6 +684,155 @@ async function doShare() {
   }
 }
 
+/* ---------- 作品ライブラリ ---------- */
+
+function currentSettings() {
+  return Object.assign(compositor.exportSettings(), {
+    doodle: doodle.items,
+    fps: player.fps,
+    frameMode: store.frameMode,
+    pingpong: store.pingpong
+  });
+}
+
+/* 編集はまとめて保存する。スライダー操作のたびに書き込まない */
+function scheduleSave() {
+  if (!state.captureId || !storageAvailable()) return;
+  clearTimeout(state.saveTimer);
+  state.saveTimer = setTimeout(async () => {
+    try {
+      await updateCapture(state.captureId, { settings: currentSettings() });
+    } catch (e) { /* 保存できなくても撮影は続けられる */ }
+  }, 700);
+}
+
+async function persistNewCapture(result) {
+  if (!storageAvailable()) return;
+  const id = newCaptureId();
+  state.captureId = id;
+  try {
+    const blobs = [];
+    for (const frame of result.frames) {
+      blobs.push(await canvasToBlob(frame.canvas, 'image/jpeg', 0.92));
+    }
+    const thumb = await canvasToBlob(makeThumbnail(result.frames[0].canvas, 240), 'image/jpeg', 0.8);
+    await saveCapture({
+      id,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      width: result.width,
+      height: result.height,
+      frameCount: result.frames.length,
+      frameTimes: result.frames.map((f) => Math.round(f.elapsed)),
+      metrics: state.metrics,
+      settings: currentSettings(),
+      thumb
+    }, blobs);
+    refreshLibrary();
+  } catch (e) {
+    state.captureId = null;
+  }
+}
+
+async function refreshLibrary() {
+  if (!storageAvailable()) {
+    $('libNote').textContent = 'このブラウザでは作品を保存できません。';
+    return;
+  }
+  let items = [];
+  try {
+    items = await listCaptures();
+  } catch (e) {
+    $('libNote').textContent = '保存領域を開けませんでした。';
+    return;
+  }
+  renderLibrary($('library'), items, {
+    currentId: state.captureId,
+    onOpen: openCapture,
+    onDelete: removeCapture
+  });
+  const usage = await estimateUsage();
+  const base = items.length + ' 件。この端末の中だけに保存され、どこにも送信されません。';
+  $('libNote').textContent = usage && usage.usage
+    ? base + '（使用中 ' + (usage.usage / 1048576).toFixed(1) + 'MB）'
+    : base;
+}
+
+async function openCapture(id) {
+  try {
+    const record = await getCapture(id);
+    const blobs = await loadFrameBlobs(id);
+    if (!record || !blobs.length) return;
+
+    const canvases = [];
+    for (const b of blobs) canvases.push(await blobToCanvas(b));
+
+    const frames = canvases.map((canvas, i) => ({
+      canvas,
+      t: 0,
+      elapsed: (record.frameTimes && record.frameTimes[i]) || 0,
+      mediaTime: null,
+      presentedFrames: null
+    }));
+
+    store.setResult({
+      frames,
+      width: record.width,
+      height: record.height,
+      sourceWidth: record.metrics ? record.metrics.sourceWidth : record.width,
+      sourceHeight: record.metrics ? record.metrics.sourceHeight : record.height,
+      requestedMs: record.metrics ? record.metrics.requestedMs : 0,
+      capacity: frames.length,
+      method: record.metrics ? record.metrics.method : 'stored',
+      latencyMs: 0
+    });
+
+    state.captureId = id;
+    state.metrics = record.metrics || null;
+
+    const s = record.settings || {};
+    compositor.invalidate();
+    compositor.applySettings(s);
+    doodle.setSize(record.width, record.height);
+    doodle.items = Array.isArray(s.doodle) ? s.doodle.slice() : [];
+    doodle.redraw();
+
+    if (typeof s.fps === 'number') {
+      player.fps = s.fps;
+      $('fpsRange').value = String(s.fps);
+      $('fpsOut').textContent = String(s.fps);
+    }
+    if (typeof s.frameMode === 'number') {
+      store.setFrameMode(s.frameMode);
+      selectChip($('frameModeChips'), s.frameMode);
+    }
+    if (typeof s.pingpong === 'boolean') {
+      store.setPingPong(s.pingpong);
+      $('pingpongToggle').checked = s.pingpong;
+      $('loopBadge').textContent = s.pingpong ? '往復再生' : '片道再生';
+    }
+
+    syncUIFromCompositor();
+    renderResult();
+    showView('result');
+    showTab($('tabs'), 'play');
+    setDrawing(false);
+    $('toResult').disabled = false;
+    refreshLibrary();
+  } catch (e) {
+    $('libNote').textContent = 'この作品を開けませんでした。';
+  }
+}
+
+async function removeCapture(id) {
+  if (!window.confirm('この作品を削除します。元に戻せません。')) return;
+  try {
+    await deleteCapture(id);
+    if (state.captureId === id) state.captureId = null;
+    refreshLibrary();
+  } catch (e) { /* 失敗しても一覧はそのまま */ }
+}
+
 /* ---------- 起動 ---------- */
 
 showEnvironment();
@@ -520,9 +844,12 @@ setupExportControls();
 
 setupTabs($('tabs'), (name) => {
   setDrawing(name === 'draw');
+  if (name === 'lib') refreshLibrary();
+  if (name === 'save') updateLoopInfo();
 });
 
 selectChip($('frameModeChips'), DEFAULT_FRAME_MODE);
+refreshLibrary();
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) pausePlayback();

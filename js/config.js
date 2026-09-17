@@ -3,8 +3,8 @@
 
 export const APP = {
   name: 'SLIDEBURST',
-  version: '0.2.0',
-  build: '20260917b',
+  version: '0.3.0',
+  build: '20260917c',
   url: 'https://egoaid.github.io/SLIDEBURST/'
 };
 
@@ -53,6 +53,40 @@ export const EMOJI_SET = [
 ];
 
 export const PEN_COLORS = ['#ffffff', '#ff4d6d', '#ffd23f', '#35c8d8', '#7ad46a', '#b06bff', '#12161c'];
+
+/* 動画の長さ。作品そのものは短いまま、書き出しでくり返す */
+export const EXPORT_DURATIONS = [
+  { value: 2,  label: '2秒' },
+  { value: 5,  label: '5秒' },
+  { value: 10, label: '10秒' },
+  { value: 15, label: '15秒' },
+  { value: 30, label: '30秒' }
+];
+
+export const DEFAULT_EXPORT_SECONDS = 5;
+
+/* 書き出し枠。作品を切らずに、この比率の中へ収める */
+export const SOCIAL_FRAMES = [
+  { id: 'artwork', label: '作品のまま', ratio: null },
+  { id: '1x1',     label: '1:1',       ratio: 1 },
+  { id: '4x5',     label: '4:5',       ratio: 4 / 5 },
+  { id: '9x16',    label: '9:16',      ratio: 9 / 16 },
+  { id: '16x9',    label: '16:9',      ratio: 16 / 9 }
+];
+
+export const BACKGROUNDS = [
+  { id: 'blur',  label: 'ぼかし' },
+  { id: 'black', label: '黒' },
+  { id: 'white', label: '白' }
+];
+
+/* 撮影中の構図ガイド */
+export const GUIDES = [
+  { id: 'off',  label: 'なし',  ratio: null },
+  { id: '4x3',  label: '4:3',   ratio: 4 / 3 },
+  { id: '1x1',  label: '1:1',   ratio: 1 },
+  { id: '3x4',  label: '3:4',   ratio: 3 / 4 }
+];
 
 export const EXPORT_FORMATS = [
   {
