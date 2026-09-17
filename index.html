@@ -3,14 +3,30 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<meta name="theme-color" content="#1b1f26">
-<meta name="description" content="ごく短い横移動で多視点フレームを取得する、動く立体写真カメラの検証用プロトタイプ。">
-<title>SLIDEBURST — 多視点バースト撮影テスト</title>
+<meta name="theme-color" content="#12161c">
+<meta name="description" content="一瞬の横移動で、止まった人が立体的に動き出す。iPhoneの1眼で撮る多視点ループカメラ。">
+<title>SLIDEBURST — 動く立体写真カメラ</title>
+
+<link rel="icon" href="./icons/favicon-32.png" sizes="32x32">
+<link rel="icon" href="./icons/favicon-16.png" sizes="16x16">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="SLIDEBURST">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="SLIDEBURST — 動く立体写真カメラ">
+<meta property="og:description" content="一瞬の横移動で、止まった人が立体的に動き出す。iPhoneの1眼で撮る多視点ループカメラ。">
+<meta property="og:url" content="https://egoaid.github.io/SLIDEBURST/">
+<meta property="og:image" content="https://egoaid.github.io/SLIDEBURST/icons/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+
 <link rel="stylesheet" href="./css/base.css">
 <link rel="stylesheet" href="./css/layout.css">
 <link rel="stylesheet" href="./css/camera.css">
 <link rel="stylesheet" href="./css/controls.css">
 <link rel="stylesheet" href="./css/result.css">
+<link rel="stylesheet" href="./css/editor.css">
+<link rel="stylesheet" href="./css/export.css">
 <link rel="stylesheet" href="./css/metrics.css">
 </head>
 <body>
@@ -25,7 +41,7 @@
 
 <main>
 
-  <!-- ============ 撮影画面 ============ -->
+  <!-- ============ 撮影 ============ -->
   <section class="view view--camera" id="viewCamera">
 
     <div class="stage" id="stage">
@@ -35,10 +51,30 @@
       </div>
       <div class="stage__flash" id="flash" aria-hidden="true"></div>
       <div class="stage__blocker" id="blocker">
-        <p class="stage__blockerText" id="blockerText">カメラを起動して検証を始めます。</p>
+        <p class="stage__blockerText" id="blockerText">カメラを起動すると撮影できます。</p>
         <button class="btn btn--primary" id="startCamera" type="button">カメラを起動</button>
       </div>
     </div>
+
+    <div class="shutterRow">
+      <button class="iconBtn" id="flipCamera" type="button" aria-label="インカメラとアウトカメラを切り替え">
+        <span class="iconBtn__glyph" aria-hidden="true">⇄</span>
+        <span class="iconBtn__text" id="facingLabel">アウト</span>
+      </button>
+
+      <button class="shutter" id="shutter" type="button" disabled>
+        <span class="shutter__ring"></span>
+        <span class="shutter__core"></span>
+        <span class="shutter__text" id="shutterText">0.10s</span>
+      </button>
+
+      <button class="iconBtn" id="toResult" type="button" disabled>
+        <span class="iconBtn__glyph" aria-hidden="true">▤</span>
+        <span class="iconBtn__text">結果</span>
+      </button>
+    </div>
+
+    <p class="status" id="status" role="status">撮影時間を選んで、シャッターと同時にカメラを横へ滑らせてください。</p>
 
     <div class="panel">
       <fieldset class="field">
@@ -52,7 +88,7 @@
           <select id="scaleSelect">
             <option value="1">センサー出力のまま</option>
             <option value="0.75">75%</option>
-            <option value="0.5" selected>50%（取りこぼしが少ない）</option>
+            <option value="0.5" selected>50%（おすすめ）</option>
             <option value="0.35">35%</option>
           </select>
         </label>
@@ -65,47 +101,43 @@
           </select>
         </label>
       </div>
-
-      <div class="shutterRow">
-        <button class="iconBtn" id="flipCamera" type="button" aria-label="インカメラとアウトカメラを切り替え">
-          <span class="iconBtn__glyph" aria-hidden="true">⇄</span>
-          <span class="iconBtn__text" id="facingLabel">アウト</span>
-        </button>
-
-        <button class="shutter" id="shutter" type="button" disabled>
-          <span class="shutter__ring"></span>
-          <span class="shutter__core"></span>
-          <span class="shutter__text">撮る</span>
-        </button>
-
-        <button class="iconBtn" id="toResult" type="button" disabled>
-          <span class="iconBtn__glyph" aria-hidden="true">▤</span>
-          <span class="iconBtn__text">結果</span>
-        </button>
-      </div>
-
-      <p class="status" id="status" role="status">撮影時間を選んで、シャッターを押しながらカメラを横へ滑らせてください。</p>
     </div>
   </section>
 
-  <!-- ============ 結果画面 ============ -->
+  <!-- ============ 確認・加工・保存 ============ -->
   <section class="view view--result" id="viewResult" hidden>
 
-    <div class="loop">
+    <div class="loop" id="loopWrap">
       <canvas id="loopCanvas"></canvas>
+      <div class="loop__drawLayer" id="drawLayer" hidden></div>
       <div class="loop__badge" id="loopBadge">往復再生</div>
     </div>
 
-    <div class="panel">
+    <div class="quickRow">
+      <button class="btn btn--ghost" id="backToCamera" type="button">撮り直す</button>
+      <button class="btn btn--ghost" id="playToggle" type="button">停止</button>
+      <button class="btn btn--primary" id="quickSave" type="button">保存・共有</button>
+    </div>
+
+    <nav class="tabs" id="tabs" role="tablist">
+      <button class="tab" role="tab" data-tab="play" aria-selected="true">再生</button>
+      <button class="tab" role="tab" data-tab="look" aria-selected="false">加工</button>
+      <button class="tab" role="tab" data-tab="draw" aria-selected="false">落書き</button>
+      <button class="tab" role="tab" data-tab="save" aria-selected="false">保存</button>
+      <button class="tab" role="tab" data-tab="data" aria-selected="false">検証</button>
+    </nav>
+
+    <!-- 再生 -->
+    <div class="tabPanel" data-panel="play">
       <fieldset class="field">
-        <legend class="field__label">コマ数</legend>
+        <legend class="field__label">使うコマ数</legend>
         <div class="chips" id="frameModeChips" role="radiogroup" aria-label="コマ数"></div>
       </fieldset>
 
       <div class="field field--row">
         <label class="range">
-          <span class="range__label">再生速度 <output id="fpsOut">12</output> fps</span>
-          <input type="range" id="fpsRange" min="2" max="30" step="1" value="12">
+          <span class="range__label">再生速度 <output id="fpsOut">10</output> fps</span>
+          <input type="range" id="fpsRange" min="2" max="30" step="1" value="10">
         </label>
         <label class="toggle">
           <input type="checkbox" id="pingpongToggle" checked>
@@ -120,23 +152,94 @@
         </label>
         <div class="scrubRow">
           <button class="btn btn--ghost" id="prevFrame" type="button">◀ 前</button>
-          <button class="btn btn--ghost" id="playToggle" type="button">停止</button>
           <button class="btn btn--ghost" id="nextFrame" type="button">次 ▶</button>
         </div>
       </div>
     </div>
 
-    <h2 class="sectionTitle">取得フレーム <span id="stripCount"></span></h2>
-    <div class="strip" id="strip"></div>
+    <!-- 加工 -->
+    <div class="tabPanel" data-panel="look" hidden>
+      <fieldset class="field">
+        <legend class="field__label">フィルター</legend>
+        <div class="chips chips--filters" id="filterChips" role="radiogroup" aria-label="フィルター"></div>
+      </fieldset>
 
-    <h2 class="sectionTitle">計測結果</h2>
-    <dl class="metrics" id="metrics"></dl>
-    <p class="metrics__verdict" id="verdict"></p>
-
-    <div class="resultActions">
-      <button class="btn btn--primary" id="backToCamera" type="button">撮り直す</button>
-      <button class="btn btn--ghost" id="copyMetrics" type="button">計測結果をコピー</button>
+      <fieldset class="field">
+        <legend class="field__label">日付の焼き込み</legend>
+        <div class="stampRow">
+          <label class="toggle">
+            <input type="checkbox" id="stampToggle">
+            <span>表示する</span>
+          </label>
+          <input class="textInput" id="stampText" type="text" inputmode="text" maxlength="24" aria-label="焼き込む日付">
+        </div>
+        <div class="chips" id="stampColorChips" role="radiogroup" aria-label="日付の色"></div>
+        <p class="hint">数字は当時のカメラと同じ7セグメント表示で焼き込まれます。文字は自由に書き換えられます。</p>
+      </fieldset>
     </div>
+
+    <!-- 落書き -->
+    <div class="tabPanel" data-panel="draw" hidden>
+      <p class="hint">プレビューの上に直接描けます。描いたものは全コマに乗ります。</p>
+      <div class="toolRow" id="penColors" role="radiogroup" aria-label="ペンの色"></div>
+      <div class="toolRow">
+        <label class="range">
+          <span class="range__label">太さ <output id="penSizeOut">8</output></span>
+          <input type="range" id="penSize" min="2" max="40" step="1" value="8">
+        </label>
+      </div>
+      <div class="emojiGrid" id="emojiGrid" aria-label="スタンプ"></div>
+      <div class="toolRow toolRow--actions">
+        <button class="btn btn--ghost" id="undoDraw" type="button">ひとつ戻す</button>
+        <button class="btn btn--ghost" id="clearDraw" type="button">全部消す</button>
+      </div>
+    </div>
+
+    <!-- 保存 -->
+    <div class="tabPanel" data-panel="save" hidden>
+      <fieldset class="field">
+        <legend class="field__label">形式</legend>
+        <div class="chips" id="formatChips" role="radiogroup" aria-label="保存形式"></div>
+        <p class="hint" id="formatHint"></p>
+      </fieldset>
+
+      <div class="field field--row">
+        <label class="select">
+          <span class="select__label">サイズ</span>
+          <select id="exportSize">
+            <option value="480">480px（軽い）</option>
+            <option value="720" selected>720px（標準）</option>
+            <option value="1080">元のまま</option>
+          </select>
+        </label>
+        <label class="select">
+          <span class="select__label">長さ</span>
+          <select id="exportLoops">
+            <option value="2">2往復</option>
+            <option value="4" selected>4往復</option>
+            <option value="8">8往復</option>
+          </select>
+        </label>
+      </div>
+
+      <button class="btn btn--primary btn--wide" id="exportBtn" type="button">作って保存・共有</button>
+      <div class="exportStatus" id="exportStatus" role="status"></div>
+      <div class="exportResult" id="exportResult" hidden>
+        <a class="btn btn--ghost btn--wide" id="downloadLink" download>ダウンロード</a>
+        <button class="btn btn--primary btn--wide" id="shareBtn" type="button">共有して写真に保存</button>
+      </div>
+    </div>
+
+    <!-- 検証 -->
+    <div class="tabPanel" data-panel="data" hidden>
+      <h2 class="sectionTitle">取得フレーム <span id="stripCount"></span></h2>
+      <div class="strip" id="strip"></div>
+      <h2 class="sectionTitle">計測結果</h2>
+      <dl class="metrics" id="metrics"></dl>
+      <p class="metrics__verdict" id="verdict"></p>
+      <button class="btn btn--ghost btn--wide" id="copyMetrics" type="button">計測結果をコピー</button>
+    </div>
+
   </section>
 
 </main>

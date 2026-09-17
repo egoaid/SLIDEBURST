@@ -1,11 +1,12 @@
 /* playback.js — 往復ループ再生プレイヤー */
 
 export class LoopPlayer {
-  constructor(canvas, store) {
+  constructor(canvas, store, compositor) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: false });
     this.store = store;
-    this.fps = 12;
+    this.compositor = compositor;
+    this.fps = 10;
     this.pos = 0;
     this.playing = false;
     this.rafId = null;
@@ -21,11 +22,17 @@ export class LoopPlayer {
   }
 
   drawCurrent() {
-    const frame = this.store.frameAt(this.pos);
-    if (!frame) return;
-    this.resizeTo(frame.canvas.width, frame.canvas.height);
-    this.ctx.drawImage(frame.canvas, 0, 0);
-    if (this.onPosChange) this.onPosChange(this.pos);
+    if (!this.store.sequence.length) return;
+    const index = this.store.sourceIndexAt(this.pos);
+    const { width, height } = this.compositor.size;
+    if (!width) return;
+    this.resizeTo(width, height);
+    this.compositor.renderTo(this.ctx, index, width, height);
+    if (this.onPosChange) this.onPosChange(this.pos, index);
+  }
+
+  refresh() {
+    this.drawCurrent();
   }
 
   setPos(pos) {
@@ -65,10 +72,5 @@ export class LoopPlayer {
     if (this.playing) this.pause();
     else this.play();
     return this.playing;
-  }
-
-  reset() {
-    this.pos = 0;
-    this.drawCurrent();
   }
 }

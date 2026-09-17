@@ -8,7 +8,7 @@ export class FrameStore {
     this.frames = [];
     this.usedIndices = [];   // 往復再生に使う元フレーム番号
     this.sequence = [];      // 実際の再生順（往復済み）
-    this.frameMode = 13;
+    this.frameMode = 0;
     this.pingpong = true;
   }
 

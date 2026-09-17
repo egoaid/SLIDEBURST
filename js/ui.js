@@ -3,7 +3,7 @@
 import { $ } from './utils.js';
 import { makeThumbnail } from './frames.js';
 
-/* ラジオ相当のチップ群を作る */
+/* ラジオ相当のチップ群 */
 export function buildChips(container, items, selectedValue, onSelect) {
   container.textContent = '';
   items.forEach((item) => {
@@ -20,6 +20,74 @@ export function buildChips(container, items, selectedValue, onSelect) {
       onSelect(item.value);
     });
     container.append(btn);
+  });
+}
+
+export function selectChip(container, value) {
+  container.querySelectorAll('.chip').forEach((c) => {
+    c.setAttribute('aria-checked', c.dataset.value === String(value) ? 'true' : 'false');
+  });
+}
+
+/* 色見本のボタン列 */
+export function buildSwatches(container, colors, selected, onSelect) {
+  container.textContent = '';
+  colors.forEach((color) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'swatch';
+    btn.dataset.value = color;
+    btn.style.setProperty('--swatch', color);
+    btn.setAttribute('role', 'radio');
+    btn.setAttribute('aria-label', color);
+    btn.setAttribute('aria-checked', color === selected ? 'true' : 'false');
+    btn.addEventListener('click', () => {
+      container.querySelectorAll('.swatch').forEach((c) => c.setAttribute('aria-checked', 'false'));
+      btn.setAttribute('aria-checked', 'true');
+      onSelect(color);
+    });
+    container.append(btn);
+  });
+}
+
+export function buildEmojiGrid(container, list, onSelect) {
+  container.textContent = '';
+  list.forEach((emoji) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'emojiBtn';
+    btn.textContent = emoji;
+    btn.dataset.value = emoji;
+    btn.addEventListener('click', () => {
+      const on = btn.getAttribute('aria-pressed') === 'true';
+      container.querySelectorAll('.emojiBtn').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+      btn.setAttribute('aria-pressed', on ? 'false' : 'true');
+      onSelect(on ? null : emoji);
+    });
+    container.append(btn);
+  });
+}
+
+export function clearEmojiSelection(container) {
+  container.querySelectorAll('.emojiBtn').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+}
+
+/* タブの切り替え */
+export function setupTabs(nav, onChange) {
+  nav.addEventListener('click', (e) => {
+    const tab = e.target.closest('.tab');
+    if (!tab) return;
+    showTab(nav, tab.dataset.tab);
+    onChange(tab.dataset.tab);
+  });
+}
+
+export function showTab(nav, name) {
+  nav.querySelectorAll('.tab').forEach((t) => {
+    t.setAttribute('aria-selected', t.dataset.tab === name ? 'true' : 'false');
+  });
+  document.querySelectorAll('.tabPanel').forEach((p) => {
+    p.hidden = p.dataset.panel !== name;
   });
 }
 
@@ -42,7 +110,6 @@ export function fireFlash() {
   flash.classList.add('is-firing');
 }
 
-/* 取得フレームの一覧を作る。クリックでそのコマへジャンプ */
 export function renderStrip(container, store, onPick) {
   container.textContent = '';
   const used = new Set(store.usedIndices);
@@ -68,4 +135,11 @@ export function markStripUsage(container, store, currentSourceIndex) {
     cell.classList.toggle('is-used', used.has(i));
     cell.classList.toggle('is-current', i === currentSourceIndex);
   });
+}
+
+export function setExportStatus(text, progress = null) {
+  const el = $('exportStatus');
+  el.textContent = text;
+  el.classList.toggle('is-active', progress !== null);
+  el.style.setProperty('--progress', progress === null ? '0%' : Math.round(progress * 100) + '%');
 }

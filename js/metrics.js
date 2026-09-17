@@ -72,24 +72,34 @@ export function renderMetrics(dl, m) {
   row(dl, 'シャッター遅延', round(m.latencyMs, 1) + ' ms');
 }
 
-/* 実機検証の判断材料を1文で返す */
+/* 撮れ高の読み方を短く返す */
 export function verdict(m) {
   const lines = [];
-  if (m.frameCount < 4) {
-    lines.push('この撮影時間ではコマ数が足りません。撮影時間を1段長くするか、記録解像度を下げてください。');
-  } else if (m.measuredFps < 28) {
-    lines.push('実測レートが低く、コマ間の視点移動が粗くなります。記録解像度を下げると改善することがあります。');
-  } else if (m.measuredFps >= 55) {
-    lines.push('60fps相当で取得できています。この撮影時間ならコンセプトは成立します。');
+  const fps = m.measuredFps;
+
+  if (m.frameCount < 3) {
+    lines.push('コマが足りません。立体感を出すには最低3コマ必要です。撮影時間を1段長くしてください。');
+  } else if (fps >= 45) {
+    lines.push('60fps級で取れています。この速さなら被写体はほぼ止まったまま、視点だけが動きます。');
+  } else if (fps >= 25) {
+    lines.push('30fps級です。同じコマ数を取るのに倍の時間がかかるため、被写体の動きが混ざりやすくなります。');
   } else {
-    lines.push('30fps相当で取得できています。13コマ以上ほしい場合は撮影時間を伸ばしてください。');
+    lines.push('フレームレートが低すぎます。記録解像度を下げ、ストリーム設定をフレームレート優先にしてください。');
   }
-  if (m.hitCapacity) lines.push('フレーム上限に達したため、実測時間が指定より短く出ています。');
+
+  if (m.dropped) {
+    lines.push('取りこぼしが ' + m.dropped + ' 枚ありました。記録解像度を1段下げると減ります。');
+  }
+  if (m.hitCapacity) {
+    lines.push('フレーム上限に達したため、実測時間が指定より短く出ています。');
+  }
   if (m.method !== 'requestVideoFrameCallback') {
-    lines.push('このブラウザは requestVideoFrameCallback が使えず、画面の描画周期に依存しています。数値は参考値として見てください。');
+    lines.push('このブラウザは requestVideoFrameCallback が使えず、画面の描画周期に依存しています。数値は参考値です。');
   }
-  const need13 = m.measuredFps > 0 ? Math.ceil((13 / m.measuredFps) * 1000) : null;
-  if (need13) lines.push('13コマ取るには約 ' + need13 + ' ms の撮影が必要です。');
+  if (fps > 0) {
+    const need = (n) => Math.ceil((n / fps) * 1000);
+    lines.push('この速さなら、6コマに約 ' + need(6) + ' ms、8コマに約 ' + need(8) + ' ms かかります。');
+  }
   return lines.join(' ');
 }
 

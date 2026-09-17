@@ -1,0 +1,41 @@
+/* export.css — 書き出しと共有 */
+
+.btn--wide { width: 100%; }
+
+.exportStatus {
+  position: relative;
+  min-height: 1.6em;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--paper-dim);
+  padding-bottom: 8px;
+}
+.exportStatus.is-active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: var(--progress, 0%);
+  background: var(--lens-1);
+  border-radius: 2px;
+  transition: width 160ms linear;
+}
+
+.exportResult {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.exportResult[hidden] { display: none; }
+
+/* 録画用のキャンバス。画面の外に置くが、描画は続けさせる */
+.offscreenCanvas {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0.01;
+  pointer-events: none;
+}

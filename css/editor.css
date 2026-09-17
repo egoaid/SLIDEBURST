@@ -1,0 +1,106 @@
+/* editor.css — タブ、フィルター、日付、落書き道具 */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin: 16px 0 12px;
+  border-bottom: 1px solid var(--slate-700);
+}
+
+.tab {
+  flex: 1;
+  padding: 10px 2px;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--paper-dim);
+  font-size: 13px;
+  cursor: pointer;
+}
+.tab[aria-selected="true"] {
+  color: var(--paper);
+  border-bottom-color: var(--lens-1);
+  font-weight: 600;
+}
+
+.tabPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.tabPanel[hidden] { display: none; }
+
+.chips--filters .chip { min-width: 74px; font-family: var(--font-ui); font-size: 13px; }
+
+.hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--paper-dim);
+}
+
+.stampRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.textInput {
+  flex: 1 1 140px;
+  min-width: 120px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--slate-600);
+  background: var(--slate-800);
+  color: var(--paper);
+  font-family: var(--font-num);
+  font-size: 14px;
+}
+
+.toolRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.toolRow--actions .btn { flex: 1; }
+.toolRow .range { flex: 1; }
+
+.swatch {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid var(--slate-600);
+  background: var(--swatch, #fff);
+  cursor: pointer;
+  padding: 0;
+}
+.swatch[aria-checked="true"] {
+  border-color: var(--paper);
+  box-shadow: 0 0 0 2px var(--slate-900), 0 0 0 4px var(--paper);
+}
+
+.emojiGrid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+}
+
+.emojiBtn {
+  aspect-ratio: 1;
+  font-size: 20px;
+  line-height: 1;
+  background: var(--slate-800);
+  border: 1px solid var(--slate-700);
+  border-radius: 8px;
+  cursor: pointer;
+  padding: 0;
+}
+.emojiBtn[aria-pressed="true"] {
+  border-color: var(--lens-4);
+  background: var(--slate-700);
+}
+
+@media (max-width: 360px) {
+  .emojiGrid { grid-template-columns: repeat(6, 1fr); }
+}
