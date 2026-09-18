@@ -135,7 +135,6 @@
     <div class="loop" id="loopWrap">
       <canvas id="loopCanvas"></canvas>
       <div class="loop__drawLayer" id="drawLayer" hidden></div>
-      <div class="loop__badge" id="loopBadge">往復再生</div>
     </div>
 
     <div class="quickRow">
@@ -207,11 +206,6 @@
         </label>
       </div>
 
-      <fieldset class="field" id="cinemaVariantField" hidden>
-        <legend class="field__label">色の方式</legend>
-        <div class="chips" id="cinemaVariantChips" role="radiogroup" aria-label="映画の色の方式"></div>
-      </fieldset>
-
       <div class="advancedToggle" id="advancedToggleWrap">
         <button class="btn btn--ghost" id="advancedToggle" type="button" aria-expanded="false">
           くわしく調整する
@@ -219,6 +213,10 @@
       </div>
       <fieldset class="field advancedPanel" id="advancedPanel" hidden>
         <legend class="field__label">くわしい設定</legend>
+        <fieldset class="field" id="cinemaVariantField" hidden>
+          <legend class="field__label">色の方式</legend>
+          <div class="chips" id="cinemaVariantChips" role="radiogroup" aria-label="映画の色の方式"></div>
+        </fieldset>
         <div class="advancedGrid" id="advancedGrid"></div>
         <button class="btn btn--ghost" id="advancedReset" type="button">強さの設定に戻す</button>
       </fieldset>
@@ -336,6 +334,7 @@
 <div class="pip" id="pip" hidden aria-hidden="true">
   <canvas id="pipCanvas"></canvas>
   <span class="pip__handle">⠿</span>
+  <span class="pip__resize" id="pipResize" aria-hidden="true"></span>
 </div>
 
 <script type="module" src="./js/main.js"></script>

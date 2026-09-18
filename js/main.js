@@ -332,7 +332,6 @@ function setupPlayControls() {
 
   $('pingpongToggle').addEventListener('change', (e) => {
     store.setPingPong(e.target.checked);
-    $('loopBadge').textContent = e.target.checked ? '往復再生' : '片道再生';
     syncSequenceUI();
     scheduleSave();
   });
@@ -468,6 +467,7 @@ function setupLookControls() {
     $('advancedToggle').setAttribute('aria-expanded', String(open));
     $('advancedToggle').textContent = open ? 'かんたん設定に戻す' : 'くわしく調整する';
     if (open) renderAdvancedGrid();
+    $('cinemaVariantField').hidden = !(open && compositor.filterId === 'cinema');
   });
 
   $('advancedReset').addEventListener('click', () => {
@@ -527,7 +527,6 @@ function setupLookControls() {
 /* いま選んでいるフィルターに合わせて、映画の色方式とくわしい設定の表示を切り替える */
 function syncFilterDependentUI() {
   const id = compositor.filterId;
-  $('cinemaVariantField').hidden = id !== 'cinema';
   if (id === 'cinema') selectChip($('cinemaVariantChips'), compositor.cinemaVariant);
 
   const hasSchema = !!PARAM_SCHEMAS[id];
@@ -539,6 +538,9 @@ function syncFilterDependentUI() {
   } else if (!$('advancedPanel').hidden) {
     renderAdvancedGrid();
   }
+
+  // 色の方式は「くわしい設定」を開いていて、かつ映画フィルターのときだけ表示する
+  $('cinemaVariantField').hidden = !(id === 'cinema' && !$('advancedPanel').hidden);
 }
 
 /* くわしい設定のスライダーを、いまの値で描き直す */
@@ -958,7 +960,6 @@ async function openCapture(id) {
     if (typeof s.pingpong === 'boolean') {
       store.setPingPong(s.pingpong);
       $('pingpongToggle').checked = s.pingpong;
-      $('loopBadge').textContent = s.pingpong ? '往復再生' : '片道再生';
     }
 
     syncUIFromCompositor();
@@ -1003,7 +1004,8 @@ floatingPreview = new FloatingPreview({
   canvas: $('pipCanvas'),
   watchTarget: $('loopWrap'),
   source: $('loopCanvas'),
-  isRelevant: () => !$('viewResult').hidden
+  isRelevant: () => !$('viewResult').hidden,
+  resizeHandle: $('pipResize')
 });
 
 selectChip($('frameModeChips'), DEFAULT_FRAME_MODE);

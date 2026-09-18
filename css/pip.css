@@ -1,11 +1,13 @@
-/* pip.css — 加工中に追従する小さな映像窓 */
+/* pip.css — 加工中に追従する小さな映像窓
+   幅は js/pip.js が要素の style.width を直接書き換えて決める（ユーザーがつまんで拡大縮小できるため）。
+   ここでは初期値と見た目だけを用意する。 */
 
 .pip {
   position: fixed;
   right: 14px;
   bottom: 14px;
   z-index: 40;
-  width: 110px;
+  width: 168px;
   border-radius: 10px;
   overflow: hidden;
   background: #000;
@@ -16,6 +18,7 @@
 }
 .pip[hidden] { display: none; }
 .pip.is-dragging { cursor: grabbing; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55), 0 0 0 2px var(--lens-1); }
+.pip.is-resizing { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55), 0 0 0 2px var(--lens-1); }
 
 .pip canvas {
   display: block;
@@ -33,6 +36,23 @@
   pointer-events: none;
 }
 
-@media (min-width: 420px) {
-  .pip { width: 130px; }
+.pip__resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 26px;
+  height: 26px;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+.pip__resize::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 11px;
+  height: 11px;
+  border-right: 2px solid rgba(236, 231, 222, 0.8);
+  border-bottom: 2px solid rgba(236, 231, 222, 0.8);
+  border-radius: 0 0 2px 0;
 }
