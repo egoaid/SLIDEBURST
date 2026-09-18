@@ -27,11 +27,18 @@ import {
   listCaptures, getCapture, loadFrameBlobs, deleteCapture, blobToCanvas, estimateUsage
 } from './storage.js';
 import { renderLibrary } from './library.js';
+import { FloatingPreview } from './pip.js';
 import {
   buildChips, selectChip, buildSwatches, buildEmojiGrid, clearEmojiSelection,
   setupTabs, showTab, setStatus, showView, fireFlash, renderStrip, markStripUsage,
   setExportStatus, buildAdvancedGrid
 } from './ui.js';
+
+/* showView に加えて、PiP プレビューへも今の画面状態を伝える */
+function goView(name) {
+  showView(name);
+  if (floatingPreview) floatingPreview.refresh();
+}
 
 const video = $('preview');
 const camera = new Camera(video);
@@ -40,6 +47,7 @@ const store = new FrameStore();
 const doodle = new Doodle();
 const compositor = new Compositor(store, doodle);
 const player = new LoopPlayer($('loopCanvas'), store, compositor);
+let floatingPreview = null;
 
 const state = {
   durationMs: DEFAULT_DURATION_MS,
@@ -125,7 +133,7 @@ function setupCameraControls() {
   $('startCamera').addEventListener('click', startCamera);
   $('flipCamera').addEventListener('click', flipCamera);
   $('shutter').addEventListener('click', shoot);
-  $('toResult').addEventListener('click', () => { if (store.count) showView('result'); });
+  $('toResult').addEventListener('click', () => { if (store.count) goView('result'); });
 }
 
 /* プレビューに重ねる構図ガイド。撮影する範囲そのものは変わらない。
@@ -299,7 +307,7 @@ function handleResult(result) {
   setStatus(result.frames.length + ' 枚 / 実測 ' + Math.round(state.metrics.measuredFps) + 'fps。');
 
   renderResult();
-  showView('result');
+  goView('result');
   showTab($('tabs'), 'play');
   setDrawing(false);
   persistNewCapture(result);
@@ -342,7 +350,7 @@ function setupPlayControls() {
   $('backToCamera').addEventListener('click', () => {
     pausePlayback();
     setDrawing(false);
-    showView('camera');
+    goView('camera');
   });
 
   buildChips(
@@ -955,7 +963,7 @@ async function openCapture(id) {
 
     syncUIFromCompositor();
     renderResult();
-    showView('result');
+    goView('result');
     showTab($('tabs'), 'play');
     setDrawing(false);
     $('toResult').disabled = false;
@@ -987,10 +995,19 @@ setupTabs($('tabs'), (name) => {
   setDrawing(name === 'draw');
   if (name === 'lib') refreshLibrary();
   if (name === 'save') updateLoopInfo();
+  if (floatingPreview) floatingPreview.refresh();
+});
+
+floatingPreview = new FloatingPreview({
+  wrap: $('pip'),
+  canvas: $('pipCanvas'),
+  watchTarget: $('loopWrap'),
+  source: $('loopCanvas'),
+  isRelevant: () => !$('viewResult').hidden
 });
 
 selectChip($('frameModeChips'), DEFAULT_FRAME_MODE);
-showView('camera');
+goView('camera');
 refreshLibrary();
 
 document.addEventListener('visibilitychange', () => {

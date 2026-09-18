@@ -28,7 +28,6 @@ export class Compositor {
     this.offsetY = 0.5;
     this.stamp = { enabled: false, text: '', color: '#ff8a1f' };
     this.cache = new Map();
-    this.stage = null;
     this.stageCache = new Map();
     this.stageSig = '';
   }
@@ -151,10 +150,11 @@ export class Compositor {
     const base = this.frameCanvas(index);
     if (!base) return null;
     const r = this.rect;
-    if (!this.stage || this.stage.width !== r.width || this.stage.height !== r.height) {
-      this.stage = makeCanvas(r.width, r.height);
-    }
-    const ctx = this.stage.getContext('2d', { alpha: false });
+    // 呼び出しのたびに新しい canvas を作る。使い回すキャンバスをキャッシュに入れると、
+    // 次のコマを描いた瞬間に前のコマのキャッシュまで同じ絵に変わってしまい、
+    // 静止画のように見えるコマ落ちバグになる（実際に起きていた）。
+    const stage = makeCanvas(r.width, r.height);
+    const ctx = stage.getContext('2d', { alpha: false });
     ctx.drawImage(base, r.x, r.y, r.width, r.height, 0, 0, r.width, r.height);
 
     const overlay = this.doodle;
@@ -165,14 +165,11 @@ export class Compositor {
       drawStamp(ctx, { text: this.stamp.text, color: this.stamp.color, width: r.width, height: r.height });
     }
 
-    // ブラウン管は毎コマ計算すると重いので、設定が変わるまで取っておく
-    if (this.crt) {
-      const crt = applyCRT(this.stage, this.crtStrength);
-      if (this.stageCache.size < 48) this.stageCache.set(index, crt);
-      return crt;
-    }
-    if (this.stageCache.size < 48) this.stageCache.set(index, this.stage);
-    return this.stage;
+    // ブラウン管は毎コマ計算すると重いので、設定が変わるまで取っておく。
+    // どちらの経路も、キャッシュに入れるのは必ずこの呼び出しで新しく作った canvas。
+    const result = this.crt ? applyCRT(stage, this.crtStrength) : stage;
+    if (this.stageCache.size < 48) this.stageCache.set(index, result);
+    return result;
   }
 
   /* 作品をそのまま指定サイズへ */

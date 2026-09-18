@@ -3,8 +3,8 @@
 
 export const APP = {
   name: 'SLIDEBURST',
-  version: '0.4.0',
-  build: '20260918a',
+  version: '0.4.1',
+  build: '20260918b',
   url: 'https://egoaid.github.io/SLIDEBURST/'
 };
 

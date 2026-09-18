@@ -28,6 +28,7 @@
 <link rel="stylesheet" href="./css/editor.css">
 <link rel="stylesheet" href="./css/library.css">
 <link rel="stylesheet" href="./css/export.css">
+<link rel="stylesheet" href="./css/pip.css">
 <link rel="stylesheet" href="./css/metrics.css">
 </head>
 <body>
@@ -330,6 +331,12 @@
   <span id="buildTag"></span>
   <span>© 2026 egoaid</span>
 </footer>
+
+<!-- 加工中に本体の映像が画面外へ出たら、ここに小さく浮かせて追従させる -->
+<div class="pip" id="pip" hidden aria-hidden="true">
+  <canvas id="pipCanvas"></canvas>
+  <span class="pip__handle">⠿</span>
+</div>
 
 <script type="module" src="./js/main.js"></script>
 </body>

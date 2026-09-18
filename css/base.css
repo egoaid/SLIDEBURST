@@ -30,6 +30,23 @@
 
 * { box-sizing: border-box; }
 
+/* 誤操作の元になるので、アプリ全体でテキスト選択を無効にする。
+   入力欄（日付の焼き込みテキストなど）だけは編集できるように戻す。 */
+html, body, div, span, button, p, h1, h2, dl, dt, dd, fieldset, legend, label, output, canvas, svg {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+}
+input, textarea, [contenteditable="true"] {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  user-select: text;
+}
+/* 長押しでの画像保存メニューや選択ハイライトも誤操作のもとになるため抑える */
+img, canvas {
+  -webkit-touch-callout: none;
+}
+
 html, body {
   margin: 0;
   padding: 0;
@@ -45,15 +62,13 @@ html, body {
   max-width: 100%;
 }
 
-/* 撮影中は画面がまったく動かないようにする。
-   position:fixed で高さをビューポートに固定し、内容は stage 側で収める。 */
-body.is-camera-locked {
-  position: fixed;
-  inset: 0;
-  overflow: hidden;
-  overscroll-behavior: none;
-  touch-action: none;
-}
+/* 以前ここには「撮影中は body を position:fixed で完全に固定する」ルールがあった。
+   しかし撮影パネルの中身（撮影時間・セルフタイマー・構図ガイド・記録設定）は
+   画面の高さに収まりきらないことが多く、完全ロックすると下側の操作に
+   まったく手が届かなくなる重大な副作用があったため撤去した。
+   スクロールバーが不用意に出ていた本当の原因は、構図ガイドで使っていた
+   box-shadow の 100vmax ハック（camera.css 側で修正済み）であり、
+   スクロール自体を止める必要はない。 */
 
 h1, h2, p, dl, dd, dt, fieldset, legend, figure {
   margin: 0;

@@ -100,8 +100,6 @@ export function setStatus(text, isError = false) {
 export function showView(name) {
   $('viewCamera').hidden = name !== 'camera';
   $('viewResult').hidden = name !== 'result';
-  // 撮影中は画面そのものを動かせなくする。結果画面はタブを縦にスクロールするので外す
-  document.body.classList.toggle('is-camera-locked', name === 'camera');
   window.scrollTo(0, 0);
 }
 
