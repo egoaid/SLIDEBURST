@@ -2,7 +2,7 @@
    元フレーム → フィルター → 切り出し → 落書き → 日付 → ブラウン管
    再生も書き出しもここを通るので、プレビューと保存結果が必ず一致する。 */
 
-import { applyFilter } from './filters.js';
+import { applyFilter, getDefaultParams } from './filters.js';
 import { applyCRT } from './crt.js';
 import { drawStamp } from './datestamp.js';
 import { cropRect, ratioOf, fitRect } from './crop.js';
@@ -19,7 +19,9 @@ export class Compositor {
     this.store = store;
     this.doodle = doodle;
     this.filterId = 'none';
-    this.intensity = 1;
+    this.intensity = 100;              // 簡単設定の強さ（0〜150%）
+    this.cinemaVariant = 'technicolor';
+    this.paramsByFilter = {};          // くわしい設定で個別に触った項目だけを持つ
     this.crt = false;
     this.crtStrength = 1;
     this.aspectId = 'src';
@@ -37,10 +39,48 @@ export class Compositor {
     this.cache.clear();
   }
 
-  setIntensity(k) {
-    if (this.intensity === k) return;
-    this.intensity = k;
+  /* 簡単設定。動かすと、いま選んでいるフィルターのくわしい設定は消える */
+  setIntensity(pct) {
+    if (this.intensity === pct) return;
+    this.intensity = pct;
+    delete this.paramsByFilter[this.filterId];
     this.cache.clear();
+  }
+
+  setCinemaVariant(id) {
+    if (this.cinemaVariant === id) return;
+    this.cinemaVariant = id;
+    this.cache.clear();
+  }
+
+  /* くわしい設定。1項目だけを上書きする */
+  setAdvancedParam(filterId, key, value) {
+    const current = this.paramsByFilter[filterId] || {};
+    this.paramsByFilter[filterId] = Object.assign({}, current, { [key]: value });
+    this.cache.clear();
+  }
+
+  hasCustomParams(filterId) {
+    return !!this.paramsByFilter[filterId];
+  }
+
+  resetAdvanced(filterId) {
+    delete this.paramsByFilter[filterId];
+    this.cache.clear();
+  }
+
+  /* 実際に使う値。簡単設定を土台に、くわしい設定で触った項目だけ上書きする */
+  resolvedParams(filterId) {
+    const extra = filterId === 'cinema' ? { variant: this.cinemaVariant } : {};
+    const base = getDefaultParams(filterId, this.intensity, extra);
+    return Object.assign(base, this.paramsByFilter[filterId]);
+  }
+
+  paramsSignature(filterId) {
+    const p = this.resolvedParams(filterId);
+    let s = filterId;
+    for (const k of Object.keys(p).sort()) s += '|' + k + '=' + p[k];
+    return s;
   }
 
   setCRT(on, strength) {
@@ -71,15 +111,16 @@ export class Compositor {
     return { width: r.width, height: r.height };
   }
 
-  /* 加工済みのコマ。フィルターと強さごとに1回だけ計算する */
+  /* 加工済みのコマ。フィルターとパラメータの組ごとに1回だけ計算する */
   frameCanvas(index) {
     const frame = this.store.frames[index];
     if (!frame) return null;
     if (this.filterId === 'none') return frame.canvas;
-    const key = this.filterId + ':' + this.intensity + ':' + index;
+    const sig = this.paramsSignature(this.filterId);
+    const key = sig + ':' + index;
     let c = this.cache.get(key);
     if (!c) {
-      c = applyFilter(frame.canvas, this.filterId, index, this.intensity);
+      c = applyFilter(frame.canvas, this.filterId, index, this.resolvedParams(this.filterId));
       this.cache.set(key, c);
     }
     return c;
@@ -89,7 +130,8 @@ export class Compositor {
   get signature() {
     const s = this.stamp;
     return [
-      this.filterId, this.intensity, this.crt, this.crtStrength,
+      this.filterId === 'none' ? 'none' : this.paramsSignature(this.filterId),
+      this.crt, this.crtStrength,
       this.aspectId, Math.round(this.offsetY * 1000),
       s.enabled ? s.text + s.color : '-',
       this.doodle ? this.doodle.version : 0
@@ -122,12 +164,14 @@ export class Compositor {
     if (this.stamp.enabled && this.stamp.text) {
       drawStamp(ctx, { text: this.stamp.text, color: this.stamp.color, width: r.width, height: r.height });
     }
+
     // ブラウン管は毎コマ計算すると重いので、設定が変わるまで取っておく
     if (this.crt) {
       const crt = applyCRT(this.stage, this.crtStrength);
       if (this.stageCache.size < 48) this.stageCache.set(index, crt);
       return crt;
     }
+    if (this.stageCache.size < 48) this.stageCache.set(index, this.stage);
     return this.stage;
   }
 
@@ -165,6 +209,8 @@ export class Compositor {
     return {
       filterId: this.filterId,
       intensity: this.intensity,
+      cinemaVariant: this.cinemaVariant,
+      paramsByFilter: JSON.parse(JSON.stringify(this.paramsByFilter)),
       crt: this.crt,
       crtStrength: this.crtStrength,
       aspectId: this.aspectId,
@@ -176,12 +222,14 @@ export class Compositor {
   applySettings(s) {
     if (!s) return;
     this.filterId = s.filterId || 'none';
-    this.intensity = typeof s.intensity === 'number' ? s.intensity : 1;
+    this.intensity = typeof s.intensity === 'number' ? s.intensity : 100;
+    this.cinemaVariant = s.cinemaVariant || 'technicolor';
+    this.paramsByFilter = s.paramsByFilter ? JSON.parse(JSON.stringify(s.paramsByFilter)) : {};
     this.crt = !!s.crt;
     this.crtStrength = typeof s.crtStrength === 'number' ? s.crtStrength : 1;
     this.aspectId = s.aspectId || 'src';
     this.offsetY = typeof s.offsetY === 'number' ? s.offsetY : 0.5;
     if (s.stamp) this.stamp = Object.assign({ enabled: false, text: '', color: '#ff8a1f' }, s.stamp);
-    this.cache.clear();
+    this.invalidate();
   }
 }

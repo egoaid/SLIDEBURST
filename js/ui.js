@@ -100,6 +100,8 @@ export function setStatus(text, isError = false) {
 export function showView(name) {
   $('viewCamera').hidden = name !== 'camera';
   $('viewResult').hidden = name !== 'result';
+  // 撮影中は画面そのものを動かせなくする。結果画面はタブを縦にスクロールするので外す
+  document.body.classList.toggle('is-camera-locked', name === 'camera');
   window.scrollTo(0, 0);
 }
 
@@ -134,6 +136,38 @@ export function markStripUsage(container, store, currentSourceIndex) {
     const i = Number(cell.dataset.index);
     cell.classList.toggle('is-used', used.has(i));
     cell.classList.toggle('is-current', i === currentSourceIndex);
+  });
+}
+
+/**
+ * くわしい設定のスライダー列を作る。
+ * @param {HTMLElement} container
+ * @param {Array<{key:string,label:string}>} schema
+ * @param {Object} values 現在の値（key -> 0〜150）
+ * @param {(key:string, value:number)=>void} onChange
+ */
+export function buildAdvancedGrid(container, schema, values, onChange) {
+  container.textContent = '';
+  schema.forEach((item) => {
+    const row = document.createElement('label');
+    row.className = 'range';
+    const top = document.createElement('span');
+    top.className = 'range__label';
+    const out = document.createElement('output');
+    out.textContent = String(values[item.key]);
+    top.append(item.label + ' ', out, '%');
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.min = '0';
+    input.max = '150';
+    input.step = '5';
+    input.value = String(values[item.key]);
+    input.addEventListener('input', () => {
+      out.textContent = input.value;
+      onChange(item.key, Number(input.value));
+    });
+    row.append(top, input);
+    container.append(row);
   });
 }
 

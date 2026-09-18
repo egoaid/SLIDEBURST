@@ -51,9 +51,19 @@
         <span class="stage__arrow">カメラを水平に横へ滑らせる</span>
       </div>
       <div class="stage__frameGuide" id="frameGuide" hidden aria-hidden="true">
-        <span class="stage__frameGuideLabel" id="frameGuideLabel">4:3</span>
+        <div class="stage__frameGuideDim" id="dimTop"></div>
+        <div class="stage__frameGuideDim" id="dimBottom"></div>
+        <div class="stage__frameGuideDim" id="dimLeft"></div>
+        <div class="stage__frameGuideDim" id="dimRight"></div>
+        <div class="stage__frameGuideBox" id="frameGuideBox">
+          <span class="stage__frameGuideLabel" id="frameGuideLabel">4:3</span>
+        </div>
       </div>
       <div class="stage__flash" id="flash" aria-hidden="true"></div>
+      <div class="stage__countdown" id="countdown" hidden aria-hidden="true">
+        <span class="stage__countdownNum" id="countdownNum">3</span>
+        <button class="stage__countdownCancel" id="countdownCancel" type="button">キャンセル</button>
+      </div>
       <div class="stage__blocker" id="blocker">
         <p class="stage__blockerText" id="blockerText">カメラを起動すると撮影できます。</p>
         <button class="btn btn--primary" id="startCamera" type="button">カメラを起動</button>
@@ -84,6 +94,11 @@
       <fieldset class="field">
         <legend class="field__label">撮影時間</legend>
         <div class="chips" id="durationChips" role="radiogroup" aria-label="撮影時間"></div>
+      </fieldset>
+
+      <fieldset class="field">
+        <legend class="field__label">セルフタイマー</legend>
+        <div class="chips" id="timerChips" role="radiogroup" aria-label="セルフタイマー"></div>
       </fieldset>
 
       <fieldset class="field">
@@ -190,6 +205,22 @@
           <input type="range" id="intensityRange" min="0" max="150" step="5" value="100">
         </label>
       </div>
+
+      <fieldset class="field" id="cinemaVariantField" hidden>
+        <legend class="field__label">色の方式</legend>
+        <div class="chips" id="cinemaVariantChips" role="radiogroup" aria-label="映画の色の方式"></div>
+      </fieldset>
+
+      <div class="advancedToggle" id="advancedToggleWrap">
+        <button class="btn btn--ghost" id="advancedToggle" type="button" aria-expanded="false">
+          くわしく調整する
+        </button>
+      </div>
+      <fieldset class="field advancedPanel" id="advancedPanel" hidden>
+        <legend class="field__label">くわしい設定</legend>
+        <div class="advancedGrid" id="advancedGrid"></div>
+        <button class="btn btn--ghost" id="advancedReset" type="button">強さの設定に戻す</button>
+      </fieldset>
 
       <fieldset class="field">
         <legend class="field__label">ブラウン管</legend>

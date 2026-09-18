@@ -123,17 +123,28 @@
 .shutter.is-busy .shutter__core { background: var(--lens-4); }
 .shutter.is-busy .shutter__text { color: var(--paper); }
 
-/* 撮影範囲は変えず、構図の目安だけを重ねる */
+/* 撮影範囲は変えず、構図の目安だけを重ねる。
+   box-shadow の 100vmax による塗りつぶしは、overflow:hidden の親があっても
+   一部ブラウザでスクロール領域を巨大化させることがあるため使わない。
+   代わりに4枚の矩形を敷いて外側を暗くする。 */
 .stage__frameGuide {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.stage__frameGuide[hidden] { display: none; }
+
+.stage__frameGuideDim {
+  position: absolute;
+  background: rgba(5, 7, 10, 0.34);
+}
+.stage__frameGuideBox {
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   border: 1px solid rgba(236, 231, 222, 0.9);
-  box-shadow: 0 0 0 100vmax rgba(5, 7, 10, 0.34);
-  pointer-events: none;
 }
-.stage__frameGuide[hidden] { display: none; }
 .stage__frameGuideLabel {
   position: absolute;
   top: 4px;
@@ -141,4 +152,33 @@
   font-family: var(--font-num);
   font-size: 10px;
   color: rgba(236, 231, 222, 0.9);
+}
+
+/* セルフタイマーのカウントダウン */
+.stage__countdown {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: rgba(5, 7, 10, 0.45);
+  z-index: 3;
+}
+.stage__countdown[hidden] { display: none; }
+.stage__countdownNum {
+  font-family: var(--font-num);
+  font-size: 88px;
+  font-weight: 700;
+  color: var(--paper);
+  text-shadow: 0 4px 18px rgba(0,0,0,.5);
+}
+.stage__countdownCancel {
+  padding: 8px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(236,231,222,.5);
+  background: rgba(18,22,28,.5);
+  color: var(--paper);
+  font-size: 13px;
 }

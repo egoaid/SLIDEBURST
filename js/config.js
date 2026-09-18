@@ -3,8 +3,8 @@
 
 export const APP = {
   name: 'SLIDEBURST',
-  version: '0.3.0',
-  build: '20260917c',
+  version: '0.4.0',
+  build: '20260918a',
   url: 'https://egoaid.github.io/SLIDEBURST/'
 };
 
@@ -18,6 +18,14 @@ export const DURATIONS = [
 ];
 
 export const DEFAULT_DURATION_MS = 100;
+
+/* セルフタイマー */
+export const TIMER_OPTIONS = [
+  { value: 0,     label: 'なし' },
+  { value: 3000,  label: '3秒' },
+  { value: 5000,  label: '5秒' },
+  { value: 10000, label: '10秒' }
+];
 
 /* 往復再生に使うコマ数。0 は取得した全フレーム */
 export const FRAME_MODES = [

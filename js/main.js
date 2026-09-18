@@ -5,7 +5,8 @@
 import {
   APP, DURATIONS, DEFAULT_DURATION_MS, FRAME_MODES, DEFAULT_FRAME_MODE,
   DEFAULT_PLAY_FPS, STAMP_COLORS, EMOJI_SET, PEN_COLORS, EXPORT_FORMATS,
-  EXPORT_DURATIONS, DEFAULT_EXPORT_SECONDS, SOCIAL_FRAMES, BACKGROUNDS, GUIDES
+  EXPORT_DURATIONS, DEFAULT_EXPORT_SECONDS, SOCIAL_FRAMES, BACKGROUNDS, GUIDES,
+  TIMER_OPTIONS
 } from './config.js';
 import { $, browserLabel, isSecure, supportsRVFC } from './utils.js';
 import { Camera, describeCameraError } from './camera.js';
@@ -14,7 +15,7 @@ import { FrameStore, makeThumbnail } from './frames.js';
 import { Compositor } from './compose.js';
 import { ASPECTS, ratioOf, hasVerticalRoom } from './crop.js';
 import { Doodle } from './doodle.js';
-import { FILTERS } from './filters.js';
+import { FILTERS, PARAM_SCHEMAS, CINEMA_VARIANTS } from './filters.js';
 import { defaultStampText } from './datestamp.js';
 import { LoopPlayer } from './playback.js';
 import { analyze, renderMetrics, verdict, toText } from './metrics.js';
@@ -28,7 +29,8 @@ import {
 import { renderLibrary } from './library.js';
 import {
   buildChips, selectChip, buildSwatches, buildEmojiGrid, clearEmojiSelection,
-  setupTabs, showTab, setStatus, showView, fireFlash, renderStrip, markStripUsage, setExportStatus
+  setupTabs, showTab, setStatus, showView, fireFlash, renderStrip, markStripUsage,
+  setExportStatus, buildAdvancedGrid
 } from './ui.js';
 
 const video = $('preview');
@@ -57,7 +59,9 @@ const state = {
   lastBlob: null,
   lastName: '',
   captureId: null,
-  saveTimer: null
+  saveTimer: null,
+  timerMs: 0,
+  countdownCancelled: false
 };
 
 /* ---------- 環境表示 ---------- */
@@ -94,6 +98,13 @@ function setupCameraControls() {
     setGuide
   );
 
+  buildChips(
+    $('timerChips'),
+    TIMER_OPTIONS.map((t) => ({ value: t.value, label: t.label })),
+    0,
+    (ms) => { state.timerMs = ms; }
+  );
+
   $('scaleSelect').addEventListener('change', (e) => {
     state.scale = Number(e.target.value);
     pool.items = [];
@@ -117,7 +128,9 @@ function setupCameraControls() {
   $('toResult').addEventListener('click', () => { if (store.count) showView('result'); });
 }
 
-/* プレビューに重ねる構図ガイド。撮影する範囲そのものは変わらない */
+/* プレビューに重ねる構図ガイド。撮影する範囲そのものは変わらない。
+   box-shadow の巨大な塗りつぶしではなく、4枚の帯で外側を暗くする
+   （こちらのほうが、一部ブラウザでの意図しないスクロール発生を避けられる）。 */
 function setGuide(id) {
   const guide = GUIDES.find((g) => g.id === id) || GUIDES[0];
   const el = $('frameGuide');
@@ -126,13 +139,25 @@ function setGuide(id) {
     return;
   }
   const stageRatio = 3 / 4;
+  let boxWPct, boxHPct;
   if (guide.ratio >= stageRatio) {
-    el.style.width = '100%';
-    el.style.height = ((stageRatio / guide.ratio) * 100).toFixed(2) + '%';
+    boxWPct = 100;
+    boxHPct = (stageRatio / guide.ratio) * 100;
   } else {
-    el.style.height = '100%';
-    el.style.width = ((guide.ratio / stageRatio) * 100).toFixed(2) + '%';
+    boxHPct = 100;
+    boxWPct = (guide.ratio / stageRatio) * 100;
   }
+  const box = $('frameGuideBox');
+  box.style.width = boxWPct.toFixed(2) + '%';
+  box.style.height = boxHPct.toFixed(2) + '%';
+
+  const marginV = (100 - boxHPct) / 2;
+  const marginH = (100 - boxWPct) / 2;
+  $('dimTop').style.cssText = 'left:0;right:0;top:0;height:' + marginV.toFixed(2) + '%;';
+  $('dimBottom').style.cssText = 'left:0;right:0;bottom:0;height:' + marginV.toFixed(2) + '%;';
+  $('dimLeft').style.cssText = 'top:' + marginV.toFixed(2) + '%;bottom:' + marginV.toFixed(2) + '%;left:0;width:' + marginH.toFixed(2) + '%;';
+  $('dimRight').style.cssText = 'top:' + marginV.toFixed(2) + '%;bottom:' + marginV.toFixed(2) + '%;right:0;width:' + marginH.toFixed(2) + '%;';
+
   $('frameGuideLabel').textContent = guide.label;
   el.hidden = false;
 }
@@ -175,7 +200,54 @@ async function flipCamera() {
   }
 }
 
+/* カウントダウンを表示して待つ。キャンセルされたら false を返す */
+function runCountdown(ms) {
+  return new Promise((resolve) => {
+    state.countdownCancelled = false;
+    const el = $('countdown');
+    const num = $('countdownNum');
+    let remaining = Math.ceil(ms / 1000);
+    num.textContent = String(remaining);
+    el.hidden = false;
+
+    const cancel = () => {
+      state.countdownCancelled = true;
+    };
+    $('countdownCancel').addEventListener('click', cancel, { once: true });
+
+    const timer = setInterval(() => {
+      if (state.countdownCancelled) {
+        clearInterval(timer);
+        el.hidden = true;
+        resolve(false);
+        return;
+      }
+      remaining -= 1;
+      if (remaining <= 0) {
+        clearInterval(timer);
+        el.hidden = true;
+        resolve(true);
+        return;
+      }
+      num.textContent = String(remaining);
+    }, 1000);
+  });
+}
+
 async function shoot() {
+  if (state.busy || !camera.stream) return;
+
+  if (state.timerMs > 0) {
+    state.busy = true;
+    setStatus('セルフタイマー作動中…');
+    const done = await runCountdown(state.timerMs);
+    state.busy = false;
+    if (!done) {
+      setStatus('セルフタイマーをキャンセルしました。');
+      return;
+    }
+  }
+
   if (state.busy || !camera.stream) return;
   state.busy = true;
   $('shutter').classList.add('is-busy');
@@ -208,6 +280,11 @@ function handleResult(result) {
   store.setResult(result);
   state.metrics = analyze(result, camera.settings());
 
+  compositor.setFilter('none');
+  compositor.intensity = 100;
+  compositor.paramsByFilter = {};
+  compositor.cinemaVariant = 'technicolor';
+  compositor.setCRT(false, 1);
   compositor.invalidate();
   compositor.setAspect('src');
   compositor.setOffsetY(0.5);
@@ -348,6 +425,7 @@ function setupLookControls() {
     'none',
     (id) => {
       compositor.setFilter(id);
+      syncFilterDependentUI();
       player.refresh();
       resetExportResult();
       scheduleSave();
@@ -355,9 +433,38 @@ function setupLookControls() {
   );
 
   $('intensityRange').addEventListener('input', (e) => {
-    const k = Number(e.target.value) / 100;
+    const pct = Number(e.target.value);
     $('intensityOut').textContent = e.target.value;
-    compositor.setIntensity(k);
+    compositor.setIntensity(pct);
+    renderAdvancedGrid();
+    player.refresh();
+    resetExportResult();
+    scheduleSave();
+  });
+
+  buildChips(
+    $('cinemaVariantChips'),
+    CINEMA_VARIANTS.map((v) => ({ value: v.id, label: v.label })),
+    'technicolor',
+    (id) => {
+      compositor.setCinemaVariant(id);
+      player.refresh();
+      resetExportResult();
+      scheduleSave();
+    }
+  );
+
+  $('advancedToggle').addEventListener('click', () => {
+    const open = $('advancedPanel').hidden;
+    $('advancedPanel').hidden = !open;
+    $('advancedToggle').setAttribute('aria-expanded', String(open));
+    $('advancedToggle').textContent = open ? 'かんたん設定に戻す' : 'くわしく調整する';
+    if (open) renderAdvancedGrid();
+  });
+
+  $('advancedReset').addEventListener('click', () => {
+    compositor.resetAdvanced(compositor.filterId);
+    renderAdvancedGrid();
     player.refresh();
     resetExportResult();
     scheduleSave();
@@ -405,6 +512,39 @@ function setupLookControls() {
   });
   $('stampText').value = defaultStampText();
   compositor.setStamp({ text: $('stampText').value });
+
+  syncFilterDependentUI();
+}
+
+/* いま選んでいるフィルターに合わせて、映画の色方式とくわしい設定の表示を切り替える */
+function syncFilterDependentUI() {
+  const id = compositor.filterId;
+  $('cinemaVariantField').hidden = id !== 'cinema';
+  if (id === 'cinema') selectChip($('cinemaVariantChips'), compositor.cinemaVariant);
+
+  const hasSchema = !!PARAM_SCHEMAS[id];
+  $('advancedToggleWrap').hidden = !hasSchema;
+  if (!hasSchema) {
+    $('advancedPanel').hidden = true;
+    $('advancedToggle').setAttribute('aria-expanded', 'false');
+    $('advancedToggle').textContent = 'くわしく調整する';
+  } else if (!$('advancedPanel').hidden) {
+    renderAdvancedGrid();
+  }
+}
+
+/* くわしい設定のスライダーを、いまの値で描き直す */
+function renderAdvancedGrid() {
+  const id = compositor.filterId;
+  const schema = PARAM_SCHEMAS[id];
+  if (!schema) return;
+  const values = compositor.resolvedParams(id);
+  buildAdvancedGrid($('advancedGrid'), schema, values, (key, value) => {
+    compositor.setAdvancedParam(id, key, value);
+    player.refresh();
+    resetExportResult();
+    scheduleSave();
+  });
 }
 
 /* 保存した編集内容を画面へ戻す */
@@ -412,7 +552,7 @@ function syncUIFromCompositor() {
   selectChip($('filterChips'), compositor.filterId);
   selectChip($('aspectChips'), compositor.aspectId);
   selectChip($('stampColorChips'), compositor.stamp.color);
-  $('intensityRange').value = String(Math.round(compositor.intensity * 100));
+  $('intensityRange').value = String(compositor.intensity);
   $('intensityOut').textContent = $('intensityRange').value;
   $('crtToggle').checked = compositor.crt;
   $('crtRange').value = String(Math.round(compositor.crtStrength * 100));
@@ -422,6 +562,7 @@ function syncUIFromCompositor() {
   $('stampToggle').checked = compositor.stamp.enabled;
   $('stampText').value = compositor.stamp.text || '';
   updateOffsetAvailability();
+  syncFilterDependentUI();
 }
 
 /* ---------- 落書き ---------- */
@@ -849,6 +990,7 @@ setupTabs($('tabs'), (name) => {
 });
 
 selectChip($('frameModeChips'), DEFAULT_FRAME_MODE);
+showView('camera');
 refreshLibrary();
 
 document.addEventListener('visibilitychange', () => {

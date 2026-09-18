@@ -41,6 +41,18 @@ html, body {
   -webkit-text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior-y: none;
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
+/* 撮影中は画面がまったく動かないようにする。
+   position:fixed で高さをビューポートに固定し、内容は stage 側で収める。 */
+body.is-camera-locked {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
 }
 
 h1, h2, p, dl, dd, dt, fieldset, legend, figure {
