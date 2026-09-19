@@ -90,10 +90,11 @@ export const CINEMA_VARIANTS = [
 ];
 
 const CINEMA_MODELS = {
-  /* Technicolor 3-strip / dye-transfer（参照: Samson and Delilah, 1949）。
+  /* Technicolor 3-strip / dye-transfer（参照: Samson and Delilah, 1949 / The Wizard of Oz, 1939）。
      Magenta が575nm肩、Cyanが720nm成分を持つ＝理想的なCMYより汚れた分離をしている。
-     特性曲線自体をコントラストの効いた形にすることで、
-     「彩度を後がけで盛る」のではなく色分離の結果として高彩度に見えるようにする。 */
+     クロストーク行列と特性曲線が実測データに基づく「フィルム材料としての土台」、
+     hueAnchors以下が「観客が実際に見た、鮮烈で人工的な画面」を狙った色分離の仕上げ
+     （SLIDEBURST 映画フィルター再設計指示.md 参照）。 */
   technicolor: {
     // 行 = [R応答, G応答, B応答]、列 = [R, G, B] 露光record からの寄与（対角が主応答、非対角が隣接色への漏れ込み）
     matrix: [
@@ -104,16 +105,31 @@ const CINEMA_MODELS = {
     toe: [0.020, 0.020, 0.025],       // シャドーでも完全な黒には落ちきらない＝黒に色が残る
     shoulder: [0.98, 0.975, 0.97],    // ハイライトはなだらかに圧縮（白飛びしにくい）
     gammaBase: 3.6,                   // 特性曲線の傾き＝コントラストの主因
-    satBase: 1.05,
     warmBias: 0.05,
     glowBase: 0.55,
     bloomTint: [1.08, 1.0, 0.85],
     grainDecorrelation: 0.55,
-    keyImage: true                    // dye-transferのblack/key版に相当する、輪郭方向の締まり
+    keyImage: true,                   // dye-transferのblack/key版に相当する、輪郭方向の締まり
+    keyImageBase: 0.20,               // 弱すぎた旧値(0.10)から引き上げ、色の境界が分離して見えるようにする
+    paletteMute: 1.0,                 // 画面全体は鮮烈なまま（Agfacolorのように背景を静めない）
+    chromaPivot: 0.32,                // このあたりの彩度を基準に、それより上/下を強調する
+    chromaGain: 1.35,                 // 彩度差そのものを広げる＝色の境界を少し硬くする
+    // 純赤・純黄・純青は色相を引き寄せた上で彩度を強く、緑は色相はそのままに彩度を抑える。
+    // シアン・マゼンタはほぼ中立（Technicolorは緑もそれなりに明瞭に残す）
+    hueAnchors: [
+      { hue: 3,   sigma: 16, pull: 0.55, satBoost: 0.60 },
+      { hue: 52,  sigma: 20, pull: 0.40, satBoost: 0.42 },
+      { hue: 235, sigma: 26, pull: 0.45, satBoost: 0.48 },
+      { hue: 120, sigma: 30, pull: 0.15, satBoost: -0.28 },
+      { hue: 185, sigma: 26, pull: 0.10, satBoost: -0.08 },
+      { hue: 300, sigma: 30, pull: 0.10, satBoost: -0.05 }
+    ]
   },
-  /* Agfacolor 1940s / subtractive three-color chromogenic monopack（参照: Opfergang, 1944）。
-     Yellowのピークがより短波長寄り、Cyanは700nm超まで裾を引く＝Technicolorとは別の漏れ込み方。
-     3-stripのような合成・matrix工程を経ない一枚のフィルムなので、特性曲線はより穏やか。 */
+  /* Agfacolor 1940s / subtractive three-color chromogenic monopack（参照: Opfergang, 1944 /
+     小津安二郎『彼岸花』などの赤の再現）。Yellowのピークがより短波長寄り、Cyanは700nm超まで
+     裾を引く＝Technicolorとは別の漏れ込み方。3-stripのような合成・matrix工程を経ない一枚の
+     フィルムなので特性曲線は穏やかだが、見た目の狙いは正反対――画面全体は静かに抑え、
+     赤だけを異様なほど強く浮かび上がらせる（Technicolorと同じ処理にはしない）。 */
   agfa: {
     matrix: [
       [1.00, -0.02, 0.05],
@@ -123,12 +139,23 @@ const CINEMA_MODELS = {
     toe: [0.045, 0.050, 0.055],
     shoulder: [0.955, 0.96, 0.95],
     gammaBase: 2.4,
-    satBase: 0.97,
     warmBias: 0.03,
     glowBase: 0.40,
     bloomTint: [1.02, 0.99, 0.90],
     grainDecorrelation: 0.8,
-    keyImage: false
+    keyImage: false,                  // Technicolorのdye-transfer black版に相当するものを持たないため
+    paletteMute: 0.62,                // 背景をあらかじめ静める。赤のsatBoostがここから跳ね上げる
+    chromaPivot: 0.28,
+    chromaGain: 1.55,                 // 「静かな背景」と「浮き出る赤」の差をTechnicolorより広げる
+    // 赤だけ突出して強く、黄はアクセント程度。青・緑・シアンは静かな背景側へ抑える
+    hueAnchors: [
+      { hue: 3,   sigma: 14, pull: 0.65, satBoost: 1.05 },
+      { hue: 52,  sigma: 18, pull: 0.30, satBoost: 0.25 },
+      { hue: 235, sigma: 28, pull: 0.20, satBoost: -0.10 },
+      { hue: 120, sigma: 32, pull: 0.15, satBoost: -0.25 },
+      { hue: 185, sigma: 28, pull: 0.12, satBoost: -0.15 },
+      { hue: 300, sigma: 30, pull: 0.08, satBoost: -0.05 }
+    ]
   }
 };
 
@@ -155,6 +182,63 @@ function sampleLUT(lut, x) {
   const i1 = i0 < n ? i0 + 1 : n;
   const t = f - i0;
   return lut[i0] + (lut[i1] - lut[i0]) * t;
+}
+
+/* ここから「色分離」の仕組み（SLIDEBURST 映画フィルター再設計指示.md 参照）。
+   3x3のクロストーク行列と特性曲線だけでは、実写を見ると「RGBを少し変形した画像」の域を出ず、
+   古典映画特有の「色が面として分離して見える」感じにはならなかった。そこでHSLへ変換し、
+   純赤・純黄・純青のようないくつかの「アンカー色相」へ連続的に色相を引き寄せつつ、
+   アンカーに近い色（＝もともとその色に近い部分）ほど彩度を強く・遠い色（緑など）は
+   彩度を抑える、という選択的な処理を加える。ポスタライズのような色数そのものの削減はせず、
+   あくまで連続画像のまま「色の境界を強調する」方向を狙っている。 */
+
+function rgbToHsl(r, g, b) {
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  if (d === 0) return [0, 0, l];
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h;
+  if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return [h * 60, s, l];
+}
+
+function hslToRgb(h, s, l) {
+  if (s === 0) return [l, l, l];
+  const hue2rgb = (p, q, t) => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hk = (((h % 360) + 360) % 360) / 360;
+  return [hue2rgb(p, q, hk + 1 / 3), hue2rgb(p, q, hk), hue2rgb(p, q, hk - 1 / 3)];
+}
+
+/* 色相hが、方式ごとに用意した「アンカー色相」（純赤・純黄・純青など）へどれだけ近いかを
+   ガウス関数で重み付けし、[色相をアンカー側へ引き寄せる量, 彩度を増減する量]を
+   加重平均で返す。単純な合計ではなく加重平均にしているのは、肌色のように2つのアンカー
+   （赤と黄）の中間にある色が、両方の効果を二重に受けて過剰に強調されるのを防ぐため
+   （特に「肌色まで真っ赤にする」ことは明確に避けたい）。 */
+function purifyHue(h, anchors) {
+  let wSum = 0, hueShiftSum = 0, satBoostSum = 0;
+  for (let i = 0; i < anchors.length; i++) {
+    const a = anchors[i];
+    let d = h - a.hue;
+    d = ((d + 180) % 360 + 360) % 360 - 180;
+    const w = Math.exp(-(d * d) / (2 * a.sigma * a.sigma));
+    wSum += w;
+    hueShiftSum += w * -d * a.pull;
+    satBoostSum += w * a.satBoost;
+  }
+  const norm = wSum > 0.3 ? wSum : 0.3;
+  return [hueShiftSum / norm, satBoostSum / norm];
 }
 
 /* 強さ(0〜150)を、その ID が持つ全項目に一律で適用したデフォルト値を作る */
@@ -565,9 +649,10 @@ function mono(out, src, p, rand) {
 }
 
 /* 映画。テクニカラーとアグファカラーの2方式を、それぞれ別のFilm Color Engineとして扱う。
-   単純なRGB tintではなく「各色の応答を隣接色にわずかに漏れ込ませてから、フィルムの特性曲線
-   （ハイライト圧縮・シャドーの持ち上げ）にかける」という流れにしているので、
-   彩度・コントラストのスライダーは最後に軽く整える役目に留めている。 */
+   「クロストーク行列＋特性曲線」で実測データに基づく土台を作った後、HSLで色相ごとに
+   選択的な色分離（purifyHue / チャンネル彩度コントラスト）を仕上げにかけている。
+   彩度・コントラストのスライダーは、この一連の処理の途中にある基準値を動かす役目に留めている
+   （詳細: SLIDEBURST_Technicolor_Agfacolor_research.md, SLIDEBURST 映画フィルター再設計指示.md）。 */
 function cinema(out, src, p, rand, variantId) {
   const model = CINEMA_MODELS[variantId] || CINEMA_MODELS.technicolor;
   const w = out.width, h = out.height;
@@ -614,9 +699,13 @@ function cinema(out, src, p, rand, variantId) {
   const [[mRR, mRG, mRB], [mGR, mGG, mGB], [mBR, mBG, mBB]] = model.matrix;
   const warm = model.warmBias * warmth;
   const flickerMul = 1 + (rand() - 0.5) * 0.10 * flicker;
-  const satFactor = clamp(model.satBase * saturation, 0, 2.0);
+  const userSat = clamp(saturation, 0, 1.5);
   const grainAmt = 14 * grain;
   const decorr = model.grainDecorrelation;
+  const anchors = model.hueAnchors;
+  const paletteMute = model.paletteMute;
+  const chromaPivot = model.chromaPivot;
+  const chromaGain = model.chromaGain;
 
   pixelPass(ctx, w, h, (d) => {
     for (let i = 0; i < d.length; i += 4) {
@@ -633,16 +722,25 @@ function cinema(out, src, p, rand, variantId) {
       gResp = gResp < 0 ? 0 : gResp > 1 ? 1 : gResp;
       bResp = bResp < 0 ? 0 : bResp > 1 ? 1 : bResp;
 
-      // 特性曲線（ハイライト圧縮・シャドーの色残り）を経て、そのまま出力RGBへ
-      const r = sampleLUT(lutR, rResp) * 255;
-      const g = sampleLUT(lutG, gResp) * 255;
-      const b = sampleLUT(lutB, bResp) * 255;
+      // 特性曲線（ハイライト圧縮・シャドーの色残り）。ここまでが実測データに基づく「フィルム材料の土台」
+      const r1 = sampleLUT(lutR, rResp);
+      const g1 = sampleLUT(lutG, gResp);
+      const b1 = sampleLUT(lutB, bResp);
 
-      // 彩度は最後に軽く整えるだけ。発色の大部分はここまでの色再現モデルが担っている
-      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-      const rS = lum + (r - lum) * satFactor;
-      const gS = lum + (g - lum) * satFactor;
-      const bS = lum + (b - lum) * satFactor;
+      // ここから色分離の仕上げ。HSLへ変換し、純色アンカーへ色相を引き寄せつつ、
+      // アンカーに近い色ほど彩度を強く（遠い色＝緑などは抑えて）、最後に彩度そのものの
+      // コントラスト（背景は静かに、際立つ色はより際立つように）をかける
+      const [hh, ss, ll] = rgbToHsl(r1, g1, b1);
+      const [hueShift, satBoost] = purifyHue(hh, anchors);
+      const newH = hh + hueShift;
+      let s1 = ss * paletteMute * (1 + satBoost);
+      s1 = s1 < 0 ? 0 : s1 > 1 ? 1 : s1;
+      let s2 = chromaPivot + (s1 - chromaPivot) * chromaGain;
+      s2 = s2 < 0 ? 0 : s2 > 1 ? 1 : s2;
+      s2 *= userSat;
+      s2 = s2 < 0 ? 0 : s2 > 1 ? 1 : s2;
+      const [r2, g2, b2] = hslToRgb(newH, s2, ll);
+      const rS = r2 * 255, gS = g2 * 255, bS = b2 * 255;
 
       // 粒状感。3チャンネルをある程度独立させ、単色ノイズではなく色のある粒子にする
       const n0 = (rand() - 0.5) * grainAmt;
@@ -654,8 +752,8 @@ function cinema(out, src, p, rand, variantId) {
     }
   });
 
-  // dye-transferのblack/key版に相当する、輪郭方向のわずかな締まり（Technicolorのみ）
-  if (model.keyImage) sharpen(out, 0.10 + 0.10 * contrast);
+  // dye-transferのblack/key版に相当する、輪郭方向の締まり（Technicolorのみ。旧実装は弱すぎたため引き上げ）
+  if (model.keyImage) sharpen(out, model.keyImageBase + 0.16 * contrast);
 
   vignette(ctx, w, h, 0.18 * vig);
 }

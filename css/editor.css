@@ -124,6 +124,11 @@
 
 .advancedPanel[hidden] { display: none; }
 
+/* .field は display:flex を持つため、hidden 属性だけでは隠れない（UAスタイルより author スタイルが
+   優先されるため）。テクニカラー／アグファカラーの色方式は、映画フィルター選択時だけ表示したいので、
+   ここで明示的に上書きする */
+#cinemaVariantField[hidden] { display: none; }
+
 .advancedGrid {
   display: flex;
   flex-direction: column;
