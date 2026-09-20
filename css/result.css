@@ -81,3 +81,20 @@
 }
 .loop__drawLayer[hidden] { display: none; }
 .loop.is-drawing { box-shadow: inset 0 0 0 2px var(--lens-4); }
+
+/* タイトルを動かすための受け皿と、位置を示す点線のガイド */
+.loop__titleLayer {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+  cursor: move;
+}
+.loop__titleGuide {
+  position: absolute;
+  pointer-events: none;
+  border: 1.5px dashed rgba(255, 210, 63, 0.95);
+  border-radius: 3px;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+.loop.is-titleEditing { box-shadow: inset 0 0 0 2px var(--lens-2, #ffd23f); }

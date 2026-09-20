@@ -8,10 +8,12 @@ export class LoopPlayer {
     this.compositor = compositor;
     this.fps = 10;
     this.pos = 0;
+    this.tick = 0;           // 再生してから表示したコマの通し数（往復列を何周してもふえ続ける）。テープカウンター用
     this.playing = false;
     this.rafId = null;
     this.lastTick = 0;
     this.onPosChange = null;
+    this.onDraw = null;
   }
 
   resizeTo(width, height) {
@@ -27,8 +29,14 @@ export class LoopPlayer {
     const { width, height } = this.compositor.size;
     if (!width) return;
     this.resizeTo(width, height);
-    this.compositor.renderTo(this.ctx, index, this.pos, width, height);
+    this.compositor.renderTo(this.ctx, index, this.timeSec, width, height);
     if (this.onPosChange) this.onPosChange(this.pos, index);
+    if (this.onDraw) this.onDraw();
+  }
+
+  /* テープカウンターに出す秒数。通しのコマ数 ÷ 再生速度 */
+  get timeSec() {
+    return this.tick / (this.fps || 10);
   }
 
   refresh() {
@@ -38,6 +46,9 @@ export class LoopPlayer {
   setPos(pos) {
     const len = this.store.sequence.length || 1;
     this.pos = ((pos % len) + len) % len;
+    // 外から位置を指定されたとき（コマ送り・つまみ）は、その位置から数え直す。
+    // 再生中の自動送り(advance)では tick を止めずに進める
+    if (!this._advancing) this.tick = this.pos;
     this.drawCurrent();
   }
 
@@ -55,7 +66,10 @@ export class LoopPlayer {
       const interval = 1000 / this.fps;
       if (now - this.lastTick >= interval) {
         this.lastTick = now - ((now - this.lastTick) % interval);
+        this._advancing = true;
+        this.tick += 1;
         this.setPos(this.pos + 1);
+        this._advancing = false;
       }
       this.rafId = requestAnimationFrame(tick);
     };

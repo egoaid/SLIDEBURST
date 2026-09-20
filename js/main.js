@@ -13,16 +13,20 @@ import { Camera, describeCameraError } from './camera.js';
 import { FramePool, burstCapture } from './capture.js';
 import { FrameStore, makeThumbnail } from './frames.js';
 import { Compositor } from './compose.js';
+import { crtWarpPoint, crtUnwarpPoint } from './crt.js';
 import { ASPECTS, ratioOf, hasVerticalRoom } from './crop.js';
 import { Doodle } from './doodle.js';
-import { FILTERS, PARAM_SCHEMAS, CINEMA_VARIANTS, getDefaultParams } from './filters.js';
-import { OSD_FONTS } from './osd.js';
+import { FILTERS, PARAM_SCHEMAS, CINEMA_VARIANTS } from './filters.js';
+import { OSD_FONTS, TITLE_DEFAULT_X, TITLE_DEFAULT_Y } from './osd.js';
 import { VideoRecorder, videoRecordSupported } from './video-record.js';
+import { VideoPlayer } from './video-player.js';
+import { AudioTap } from './audio-tap.js';
+import { keepAwake, releaseAwake } from './wakelock.js';
 import { defaultStampText } from './datestamp.js';
 import { LoopPlayer } from './playback.js';
 import { analyze, renderMetrics, verdict, toText } from './metrics.js';
 import { encodeGIF } from './export-gif.js';
-import { encodeVideo, videoSupported, pickMimeType, extensionFor } from './export-video.js';
+import { encodeVideo, encodeVideoWork, videoSupported, pickMimeType, extensionFor } from './export-video.js';
 import { timestampName, shareFile, attachDownload } from './share.js';
 import {
   storageAvailable, newCaptureId, canvasToBlob, saveCapture, updateCapture,
@@ -36,6 +40,14 @@ import {
   setExportStatus, buildAdvancedGrid
 } from './ui.js';
 
+/* タブを切り替える。落書きの受け皿やタイトルの移動枠も、タブに合わせて切り替わる */
+function gotoTab(name) {
+  showTab($('tabs'), name);
+  state.tab = name;
+  setDrawing(name === 'draw');
+  syncTextEditing();
+}
+
 /* showView に加えて、PiP プレビューへも今の画面状態を伝える */
 function goView(name) {
   showView(name);
@@ -48,7 +60,12 @@ const pool = new FramePool();
 const store = new FrameStore();
 const doodle = new Doodle();
 const compositor = new Compositor(store, doodle);
-const player = new LoopPlayer($('loopCanvas'), store, compositor);
+const burstPlayer = new LoopPlayer($('loopCanvas'), store, compositor);
+const workVideo = $('workVideo');
+const videoPlayer = new VideoPlayer($('loopCanvas'), workVideo, compositor);
+const audioTap = new AudioTap(workVideo);
+/* いま画面に出している作品のプレイヤー。バースト作品と動画作品で差し替わる（同じ呼び方ができる） */
+let player = burstPlayer;
 const videoRecorder = new VideoRecorder();
 let floatingPreview = null;
 
@@ -72,6 +89,7 @@ const state = {
   socialFrame: 'artwork',
   background: 'blur',
   exporting: false,
+  seeking: false,
   lastBlob: null,
   lastName: '',
   captureId: null,
@@ -79,11 +97,11 @@ const state = {
   timerMs: 0,
   countdownCancelled: false,
   captureMode: 'burst',
-  videoFilterId: 'none',
-  videoIntensity: 100,
-  videoCinemaVariant: 'technicolor',
-  lastVideoBlob: null,
-  lastVideoName: ''
+  workKind: 'burst',       // いま加工画面に開いている作品の種類（'burst' | 'video'）
+  videoBlob: null,         // 動画作品の元データ（無加工の録画）
+  soundOn: true,
+  exportAbort: null,
+  tab: 'play'
 };
 
 /* ---------- 環境表示 ---------- */
@@ -121,26 +139,6 @@ function setupCameraControls() {
   $('shutterText').textContent = (DEFAULT_DURATION_MS / 1000).toFixed(2) + 's';
 
   buildChips(
-    $('videoFilterChips'),
-    FILTERS.map((f) => ({ value: f.id, label: f.label })),
-    'none',
-    (id) => {
-      state.videoFilterId = id;
-      $('videoCinemaVariantField').hidden = id !== 'cinema';
-    }
-  );
-  buildChips(
-    $('videoCinemaVariantChips'),
-    CINEMA_VARIANTS.map((v) => ({ value: v.id, label: v.label })),
-    'technicolor',
-    (id) => { state.videoCinemaVariant = id; }
-  );
-  $('videoIntensityRange').addEventListener('input', (e) => {
-    state.videoIntensity = Number(e.target.value);
-    $('videoIntensityOut').textContent = e.target.value;
-  });
-
-  buildChips(
     $('guideChips'),
     GUIDES.map((g) => ({ value: g.id, label: g.label })),
     'off',
@@ -175,31 +173,14 @@ function setupCameraControls() {
   $('flipCamera').addEventListener('click', flipCamera);
   $('shutter').addEventListener('click', onShutter);
   $('toResult').addEventListener('click', () => {
-    if (store.count) {
+    if (hasWork()) {
       goView('result');
     } else {
       // 撮影前・作品を開く前でも、作品一覧だけは常に見られるようにする
       goView('result');
-      showTab($('tabs'), 'lib');
-      setDrawing(false);
+      gotoTab('lib');
       refreshLibrary();
     }
-  });
-
-  $('videoShareBtn').addEventListener('click', async () => {
-    if (!state.lastVideoBlob) return;
-    const result = await shareFile(state.lastVideoBlob, state.lastVideoName);
-    if (result === 'unsupported') {
-      setStatus('このブラウザでは共有シートを開けません。下のダウンロードから保存してください。');
-    } else if (result === 'shared') {
-      setStatus('共有シートに渡しました。');
-    }
-  });
-  $('videoToLibraryBtn').addEventListener('click', () => {
-    goView('result');
-    showTab($('tabs'), 'lib');
-    setDrawing(false);
-    refreshLibrary();
   });
 }
 
@@ -208,8 +189,7 @@ function setCaptureMode(mode) {
   if (state.busy || videoRecorder.recording) return;
   state.captureMode = mode;
   $('durationField').hidden = mode === 'video';
-  $('videoFilterField').hidden = mode !== 'video';
-  $('videoResult').hidden = true;
+  $('videoModeHint').hidden = mode !== 'video';
 
   if (mode === 'video' && !videoRecordSupported()) {
     setStatus('このブラウザは音声付き動画の録画に対応していません。', true);
@@ -222,7 +202,7 @@ function setCaptureMode(mode) {
   }
 
   setStatus(mode === 'video'
-    ? 'ふつうの動画モードです。フィルターを選んでからシャッターで録画を開始・停止します。'
+    ? 'ふつうの動画モードです。シャッターで録画を開始・停止します。加工は録ったあとにできます。'
     : '撮影時間を選んで、シャッターと同時にカメラを横へ滑らせてください。');
 }
 
@@ -376,14 +356,27 @@ async function shoot() {
   }
 }
 
-/* ---------- ふつうの動画（音声付き・ループではない通常撮影） ---------- */
+/* ---------- ふつうの動画（無加工で録画 → 録画後に加工画面で仕上げる） ---------- */
 
 function formatRecTime(ms) {
   const s = Math.floor(ms / 1000);
-  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s % 60).padStart(2, '0');
 }
 
-let activeRecordingMeta = null;
+function formatMB(bytes) {
+  const mb = bytes / 1048576;
+  if (mb >= 1000) return (mb / 1024).toFixed(1) + 'GB';
+  return (mb < 10 ? mb.toFixed(1) : Math.round(mb)) + 'MB';
+}
+
+function endRecordingUI() {
+  $('shutter').classList.remove('is-busy');
+  $('stage').classList.remove('is-recording');
+  $('recIndicator').hidden = true;
+  releaseAwake();
+}
 
 async function toggleVideoRecording() {
   if (videoRecorder.recording) {
@@ -409,45 +402,28 @@ async function toggleVideoRecording() {
 
   if (state.busy || !camera.stream) return;
 
-  const settings = camera.settings();
-  const width = Math.round(settings.width || video.videoWidth || 720);
-  const height = Math.round(settings.height || video.videoHeight || 1280);
-  const filterId = state.videoFilterId;
-  const filterParams = getDefaultParams(
-    filterId, state.videoIntensity,
-    filterId === 'cinema' ? { variant: state.videoCinemaVariant } : {}
-  );
-  // 録画中にフィルターの選択が変わっても、この録画自体には反映されない
-  // （録り始めた時点の設定で最初から最後まで撮る）ので、開始時点の値を控えておく
-  activeRecordingMeta = { width, height, filterId, filterParams, intensity: state.videoIntensity };
-
-  $('videoResult').hidden = true;
   $('shutter').classList.add('is-busy');
   $('stage').classList.add('is-recording');
   $('recIndicator').hidden = false;
-  $('recTime').textContent = '0:00';
-  setStatus('録画中…（音声も記録しています）');
+  $('recTime').textContent = '0:00 · 0MB';
+  setStatus('録画中…（無加工で録っています。もう一度シャッターで止まります）');
+  keepAwake();
 
   const started = videoRecorder.start({
-    video, width, height,
-    mediaStream: camera.stream,
-    filterId, filterParams,
-    maxMs: 60000,
-    onTick: (elapsed) => { $('recTime').textContent = formatRecTime(elapsed); },
+    stream: camera.stream,
+    onTick: (elapsed, bytes) => {
+      $('recTime').textContent = formatRecTime(elapsed) + ' · ' + formatMB(bytes);
+    },
     onAutoStop: (result) => {
-      $('shutter').classList.remove('is-busy');
-      $('stage').classList.remove('is-recording');
-      $('recIndicator').hidden = true;
-      finishVideoRecording(result, activeRecordingMeta);
+      // 端末の空き容量が少なくなったので、録画済みぶんを守るために自動で止めた
+      endRecordingUI();
+      finishVideoRecording(result, 'storage');
     }
   });
 
   if (!started) {
-    $('shutter').classList.remove('is-busy');
-    $('stage').classList.remove('is-recording');
-    $('recIndicator').hidden = true;
+    endRecordingUI();
     setStatus('録画を開始できませんでした。', true);
-    activeRecordingMeta = null;
     return;
   }
   state.busy = true;
@@ -455,129 +431,180 @@ async function toggleVideoRecording() {
 
 async function stopVideoRecording() {
   setStatus('動画を仕上げています…');
-  const meta = activeRecordingMeta;
   const result = await videoRecorder.stop();
-  $('shutter').classList.remove('is-busy');
-  $('stage').classList.remove('is-recording');
-  $('recIndicator').hidden = true;
-  await finishVideoRecording(result, meta);
+  endRecordingUI();
+  // 空き容量の見張りが先に自動停止していた場合は、そちらが仕上げを済ませる
+  if (!result) return;
+  await finishVideoRecording(result, 'user');
 }
 
-async function finishVideoRecording(result, meta) {
+/* 録画が終わったら、ライブラリを経由せず、そのまま加工画面へ進む */
+async function finishVideoRecording(result, reason) {
   state.busy = false;
-  activeRecordingMeta = null;
   if (!result || !result.blob || !result.blob.size) {
     setStatus('録画に失敗しました。', true);
     return;
   }
   setStatus('動画を保存しています…');
-  const id = await persistNewVideoCapture(result, meta || {});
-  const ext = result.mime && result.mime.indexOf('mp4') >= 0 ? 'mp4' : 'webm';
-  const name = timestampName(ext);
-  state.lastVideoBlob = result.blob;
-  state.lastVideoName = name;
-  attachDownload($('videoDownloadLink'), result.blob, name);
-  $('videoResultNote').textContent = id
-    ? '動画を保存しました（約 ' + (result.durationMs / 1000).toFixed(1) + ' 秒）。'
-    : '動画はできましたが、端末への保存には失敗しました。ダウンロードだけはできます。';
-  $('videoResult').hidden = false;
-  setStatus(id ? '動画を保存しました。' : '動画の保存に失敗しました。ダウンロードはできます。', !id);
-}
 
-async function persistNewVideoCapture(result, meta) {
-  if (!storageAvailable()) return null;
-  const id = newCaptureId();
-  try {
-    let thumb = null;
-    try {
-      thumb = await canvasToBlob(makeThumbnail(videoRecorder.out, 240), 'image/jpeg', 0.8);
-    } catch (e) { /* サムネイルが作れなくても保存は続ける */ }
-    await saveCapture({
-      id,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      kind: 'video',
-      width: meta.width,
-      height: meta.height,
-      durationSec: result.durationMs / 1000,
-      mime: result.mime,
-      settings: {
-        filterId: meta.filterId || 'none',
-        cinemaVariant: (meta.filterParams && meta.filterParams.variant) || 'technicolor',
-        intensity: typeof meta.intensity === 'number' ? meta.intensity : 100
-      },
-      thumb
-    }, [result.blob]);
-    refreshLibrary();
-    return id;
-  } catch (e) {
-    return null;
+  const record = {
+    id: newCaptureId(),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    kind: 'video',
+    editable: true,          // 無加工の録画。加工内容は settings に持つ（旧版の焼き込み済み動画と区別する印）
+    width: 0,
+    height: 0,
+    durationSec: result.durationMs / 1000,
+    sizeBytes: result.blob.size,
+    mime: result.mime,
+    settings: {},
+    thumb: null
+  };
+  const opened = await enterVideoWork(result.blob, record, { isNew: true });
+  if (!opened) return;
+
+  const info = formatRecTime(result.durationMs) + '・' + formatMB(result.blob.size);
+  if (reason === 'storage') {
+    setStatus('端末の空き容量が少なくなったため、録画を自動で止めました（' + info + '）。ここまでの動画は保存済みです。', true);
+  } else if (!state.captureId) {
+    setStatus('録画できました（' + info + '）。端末への保存には失敗しましたが、加工と書き出しはできます。', true);
+  } else {
+    setStatus('録画できました（' + info + '）。フィルター・縦横比・文字を付けられます。');
   }
 }
 
-/* 動画作品を開く。バースト作品と違い、撮影後の加工はできないのでそのまま再生・共有・削除のみ */
-async function openVideoCapture(id, record) {
+/* 動画作品を加工画面へ開く（録画直後も、ライブラリからも同じ入口）。開けたら true */
+async function enterVideoWork(blob, record, { isNew = false } = {}) {
+  burstPlayer.pause();
+  pausePlayback();
+  let info;
   try {
-    const blobs = await loadFrameBlobs(id);
-    if (!blobs.length) return;
-    const blob = blobs[0];
-    const url = URL.createObjectURL(blob);
-    const player_ = $('videoViewerPlayer');
-    if (player_.dataset.url) URL.revokeObjectURL(player_.dataset.url);
-    player_.src = url;
-    player_.dataset.url = url;
+    info = await videoPlayer.load(blob, record.durationSec || 0);
+  } catch (e) {
+    setStatus('この動画を開けませんでした。', true);
+    return false;
+  }
 
-    const f = record.settings && record.settings.filterId;
-    $('videoViewerMeta').textContent = fmtVideoDate(record.createdAt) + ' · ' +
-      (record.durationSec ? record.durationSec.toFixed(1) + '秒' : '') +
-      (f && f !== 'none' ? ' · ' + (FILTERS.find((x) => x.id === f) || {}).label : '');
+  player = videoPlayer;
+  state.workKind = 'video';
+  state.videoBlob = blob;
+  compositor.setVideoSource(info);
+  workVideo.muted = !state.soundOn;
 
-    const name = timestampName(record.mime && record.mime.indexOf('mp4') >= 0 ? 'mp4' : 'webm');
-    attachDownload($('videoViewerDownload'), blob, name);
+  // 旧版（v0.6.0）で録った動画は、フィルターが映像に焼き込み済みで、保存された設定は「焼いた内容」を指す。
+  // 二重にかけないよう、加工内容は初期状態から始める
+  resetCompositorDefaults();
+  if (record.editable && record.settings && Object.keys(record.settings).length) {
+    compositor.applySettings(record.settings);
+  }
+  doodle.setSize(info.width, info.height);
+  const s = record.settings || {};
+  doodle.items = record.editable && Array.isArray(s.doodle) ? s.doodle.slice() : [];
+  doodle.redraw();
+  compositor.setStamp({ text: (record.editable && s.stamp && s.stamp.text) || defaultStampText(new Date(record.createdAt || Date.now())) });
 
-    $('videoViewerShare').onclick = async () => {
-      const r = await shareFile(blob, name);
-      if (r === 'unsupported') setStatus('このブラウザでは共有シートを開けません。下のダウンロードから保存してください。');
-      else if (r === 'shared') setStatus('共有シートに渡しました。');
-    };
-    $('videoViewerDelete').onclick = async () => {
-      await removeCapture(id);
-      closeVideoViewer();
-    };
-    $('videoViewerBack').onclick = closeVideoViewer;
+  applyWorkKindUI('video');
+  syncUIFromCompositor();
+  resetExportResult();
+  state.metrics = null;
+  state.captureId = null;
 
-    $('library').hidden = true;
-    $('videoViewer').hidden = false;
-  } catch (e) { /* 開けなくても一覧はそのまま */ }
+  if (storageAvailable()) {
+    try {
+      if (isNew) {
+        record.width = info.width;
+        record.height = info.height;
+        record.settings = currentSettings();
+        await saveCapture(record, [blob]);
+        state.captureId = record.id;
+      } else {
+        state.captureId = record.id;
+        if (!record.editable) {
+          await updateCapture(record.id, { editable: true, settings: currentSettings() });
+        }
+      }
+    } catch (e) {
+      state.captureId = null;
+    }
+  }
+
+  updateToResultLabel();
+  goView('result');
+  gotoTab('play');
+  updateVideoSeekUI(0, info.duration);
+  updateLoopInfo();
+  videoPlayer.refresh();
+  await playVideoWork();
+  refreshLibrary();
+  if (state.captureId && isNew) saveVideoThumb(record.id);
+  return true;
 }
 
-function closeVideoViewer() {
-  const player_ = $('videoViewerPlayer');
-  player_.pause();
-  $('videoViewer').hidden = true;
-  $('library').hidden = false;
+/* 加工画面に開いた直後の再生。音ありを試し、許されなければ音なしで始める */
+async function playVideoWork() {
+  workVideo.muted = !state.soundOn;
+  videoPlayer.mutedByPolicy = false;
+  await videoPlayer.play();
+  if (state.soundOn && workVideo.muted) {
+    setStatus('音は、いちど停止してから「再生」を押すと出ます。');
+  }
 }
 
-function fmtVideoDate(ts) {
-  if (!ts) return '';
-  const d = new Date(ts);
-  return d.getFullYear() + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + String(d.getDate()).padStart(2, '0') +
-    ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+/* 一覧に出すサムネイル。動画の冒頭付近の絵を使う */
+async function saveVideoThumb(id) {
+  try {
+    const { width, height } = compositor.sourceSize;
+    if (!width) return;
+    const c = document.createElement('canvas');
+    const scale = 240 / width;
+    c.width = 240;
+    c.height = Math.max(2, Math.round(height * scale));
+    c.getContext('2d', { alpha: false }).drawImage(workVideo, 0, 0, c.width, c.height);
+    const thumb = await canvasToBlob(c, 'image/jpeg', 0.8);
+    if (thumb) {
+      await updateCapture(id, { thumb });
+      refreshLibrary();
+    }
+  } catch (e) { /* サムネイルが作れなくても作品は使える */ }
+}
+
+/* 動画の再生位置つまみと表示 */
+function fmtClock(sec) {
+  const t = Math.max(0, Math.floor(sec || 0));
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  return (h ? h + ':' + String(m).padStart(2, '0') : String(m)) + ':' + String(t % 60).padStart(2, '0');
+}
+
+function updateVideoSeekUI(t, duration) {
+  if (!duration) return;
+  if (!state.seeking) $('videoSeekRange').value = String(Math.round((t / duration) * 1000));
+  $('videoTimeOut').textContent = fmtClock(t) + ' / ' + fmtClock(duration);
+}
+
+/* 加工画面に開ける作品があるか */
+function hasWork() {
+  return state.workKind === 'video' ? !!state.videoBlob : store.count > 0;
 }
 
 /* 「結果」アイコンのラベル。今の作品があるかどうかで表示を変える */
 function updateToResultLabel() {
-  $('toResultText').textContent = store.count ? '結果' : '作品';
+  $('toResultText').textContent = hasWork() ? '結果' : '作品';
 }
 
-function handleResult(result) {
-  if (!result.frames.length) {
-    setStatus('フレームを1枚も取得できませんでした。撮影時間を長くして試してください。', true);
-    return;
-  }
-  store.setResult(result);
-  state.metrics = analyze(result, camera.settings());
+/* 作品の種類で、加工画面に出す部品を切り替える（data-only="burst" / "video"） */
+function applyWorkKindUI(kind) {
+  document.querySelectorAll('[data-only]').forEach((el) => {
+    el.hidden = el.dataset.only !== kind;
+  });
+  buildFormatChips();
+  updateFormatHint();
+  updateLoopInfo();
+}
 
+/* 新しい作品を開く前の、加工内容の初期化 */
+function resetCompositorDefaults() {
   compositor.setFilter('none');
   compositor.intensity = 100;
   compositor.paramsByFilter = {};
@@ -587,9 +614,33 @@ function handleResult(result) {
   compositor.setAspect('src');
   compositor.setOffsetY(0.5);
   doodle.clear();
+  compositor.resetOSD();
+}
+
+/* バースト作品を開く前に、動画作品を片付ける */
+function activateBurst() {
+  if (state.workKind !== 'video') return;
+  videoPlayer.unload();
+  compositor.setVideoSource(null);
+  player = burstPlayer;
+  state.workKind = 'burst';
+  state.videoBlob = null;
+  applyWorkKindUI('burst');
+}
+
+function handleResult(result) {
+  if (!result.frames.length) {
+    setStatus('フレームを1枚も取得できませんでした。撮影時間を長くして試してください。', true);
+    return;
+  }
+  activateBurst();
+  state.captureId = null;
+  store.setResult(result);
+  state.metrics = analyze(result, camera.settings());
+
+  resetCompositorDefaults();
   doodle.setSize(result.width, result.height);
   compositor.setStamp({ text: defaultStampText() });
-  compositor.resetOSD();
   $('stampText').value = compositor.stamp.text;
   syncUIFromCompositor();
   resetExportResult();
@@ -599,8 +650,7 @@ function handleResult(result) {
 
   renderResult();
   goView('result');
-  showTab($('tabs'), 'play');
-  setDrawing(false);
+  gotoTab('play');
   persistNewCapture(result);
 }
 
@@ -615,7 +665,7 @@ function setupPlayControls() {
   );
 
   $('fpsRange').addEventListener('input', (e) => {
-    player.fps = Number(e.target.value);
+    burstPlayer.fps = Number(e.target.value);
     $('fpsOut').textContent = e.target.value;
     updateLoopInfo();
     scheduleSave();
@@ -629,14 +679,39 @@ function setupPlayControls() {
 
   $('scrubRange').addEventListener('input', (e) => {
     pausePlayback();
-    player.setPos(Number(e.target.value));
+    burstPlayer.setPos(Number(e.target.value));
   });
 
-  $('prevFrame').addEventListener('click', () => { player.step(-1); markPaused(); });
-  $('nextFrame').addEventListener('click', () => { player.step(1); markPaused(); });
+  $('prevFrame').addEventListener('click', () => { burstPlayer.step(-1); markPaused(); });
+  $('nextFrame').addEventListener('click', () => { burstPlayer.step(1); markPaused(); });
   $('playToggle').addEventListener('click', () => {
-    $('playToggle').textContent = player.toggle() ? '停止' : '再生';
+    if (state.workKind === 'video') {
+      // ここはユーザー操作の中なので、音ありの再生が許される
+      audioTap.resume();
+      workVideo.muted = !state.soundOn;
+      videoPlayer.toggle();
+    } else {
+      $('playToggle').textContent = player.toggle() ? '停止' : '再生';
+    }
   });
+
+  /* 動画作品の再生位置・コマ送り・音 */
+  $('videoSeekRange').addEventListener('input', (e) => {
+    state.seeking = true;
+    pausePlayback();
+    videoPlayer.seek((Number(e.target.value) / 1000) * videoPlayer.duration);
+  });
+  $('videoSeekRange').addEventListener('change', () => { state.seeking = false; });
+  $('videoPrevFrame').addEventListener('click', () => { videoPlayer.step(-1 / 30); markPaused(); });
+  $('videoNextFrame').addEventListener('click', () => { videoPlayer.step(1 / 30); markPaused(); });
+  $('videoSoundToggle').addEventListener('change', (e) => {
+    state.soundOn = e.target.checked;
+    workVideo.muted = !state.soundOn;
+  });
+  videoPlayer.onStateChange = (on) => {
+    $('playToggle').textContent = on ? '停止' : '再生';
+  };
+  videoPlayer.onTime = (t, duration) => updateVideoSeekUI(t, duration);
   $('backToCamera').addEventListener('click', () => {
     pausePlayback();
     setDrawing(false);
@@ -666,7 +741,9 @@ function setupPlayControls() {
     scheduleSave();
   });
 
-  player.onPosChange = (pos, sourceIndex) => {
+  burstPlayer.onDraw = updateTitleGuide;
+  videoPlayer.onDraw = updateTitleGuide;
+  burstPlayer.onPosChange = (pos, sourceIndex) => {
     $('scrubRange').value = String(pos);
     $('scrubOut').textContent = (pos + 1) + ' / ' + store.sequence.length + '（元コマ ' + (sourceIndex + 1) + '）';
     markStripUsage($('strip'), store, sourceIndex);
@@ -691,14 +768,14 @@ function markPaused() {
 function syncSequenceUI() {
   $('stripCount').textContent = store.count + ' 枚中 ' + store.usedIndices.length + ' 枚を使用';
   $('scrubRange').max = String(Math.max(0, store.sequence.length - 1));
-  player.setPos(0);
+  burstPlayer.setPos(0);
   markStripUsage($('strip'), store, store.sourceIndexAt(0));
   updateLoopInfo();
   resetExportResult();
 }
 
 function renderResult() {
-  player.fps = Number($('fpsRange').value) || DEFAULT_PLAY_FPS;
+  burstPlayer.fps = Number($('fpsRange').value) || DEFAULT_PLAY_FPS;
   renderStrip($('strip'), store, (i) => {
     const pos = store.sequence.indexOf(i);
     pausePlayback();
@@ -710,7 +787,7 @@ function renderResult() {
   }
   updateOffsetAvailability();
   syncSequenceUI();
-  player.play();
+  burstPlayer.play();
   $('playToggle').textContent = '停止';
 }
 
@@ -841,6 +918,7 @@ function setupLookControls() {
 
   $('osdTitleToggle').addEventListener('change', (e) => {
     compositor.setOSD({ titleEnabled: e.target.checked });
+    syncTextEditing();
     player.refresh();
     resetExportResult();
     scheduleSave();
@@ -848,6 +926,7 @@ function setupLookControls() {
 
   $('osdTitleText').addEventListener('input', (e) => {
     compositor.setOSD({ titleText: e.target.value });
+    syncTextEditing();
     player.refresh();
     resetExportResult();
     scheduleSave();
@@ -890,7 +969,97 @@ function setupLookControls() {
     scheduleSave();
   });
 
+  $('osdTitleReset').addEventListener('click', () => {
+    compositor.setOSD({ titleX: TITLE_DEFAULT_X, titleY: TITLE_DEFAULT_Y });
+    player.refresh();
+    resetExportResult();
+    scheduleSave();
+  });
+
+  setupTitleDrag();
+
   syncFilterDependentUI();
+}
+
+/* ---------- タイトルの移動（テキストタブでプレビューをなぞる） ---------- */
+
+/* テキストタブが開いていて、タイトルが表示中のときだけ、ドラッグの受け皿を出す */
+function syncTextEditing() {
+  const on = state.tab === 'text' && !!compositor.titleBoxNorm();
+  $('titleLayer').hidden = !on;
+  $('loopWrap').classList.toggle('is-titleEditing', on);
+  updateTitleGuide();
+}
+
+/* タイトルの位置を示す点線。ブラウン管で曲がっているときは、曲がったあとの位置に出す */
+function updateTitleGuide() {
+  const g = $('titleGuide');
+  const box = state.tab === 'text' ? compositor.titleBoxNorm() : null;
+  if (!box) {
+    g.hidden = true;
+    return;
+  }
+  let cx = box.cx, cy = box.cy;
+  if (compositor.crt) {
+    const p = crtWarpPoint(cx, cy, compositor.crtStrength);
+    cx = p.x;
+    cy = p.y;
+  }
+  g.style.left = (cx * 100).toFixed(2) + '%';
+  g.style.top = (cy * 100).toFixed(2) + '%';
+  g.style.width = (box.w * 100).toFixed(2) + '%';
+  g.style.height = (box.h * 100).toFixed(2) + '%';
+  g.hidden = false;
+}
+
+function setupTitleDrag() {
+  const layer = $('titleLayer');
+  let dragging = false;
+  let offset = { x: 0, y: 0 };
+
+  /* 画面上の指の位置（0〜1）を、曲げる前の作品の座標へ戻す */
+  const pointerToArtwork = (e) => {
+    const rect = $('loopCanvas').getBoundingClientRect();
+    let x = (e.clientX - rect.left) / rect.width;
+    let y = (e.clientY - rect.top) / rect.height;
+    if (compositor.crt) {
+      const p = crtUnwarpPoint(x, y, compositor.crtStrength);
+      x = p.x;
+      y = p.y;
+    }
+    return { x, y };
+  };
+
+  const moveTo = (p) => {
+    const x = Math.min(1, Math.max(0, p.x + offset.x));
+    const y = Math.min(1, Math.max(0, p.y + offset.y));
+    compositor.setOSD({ titleX: x, titleY: y });
+    player.refresh();
+    resetExportResult();
+    scheduleSave();
+  };
+
+  layer.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    const p = pointerToArtwork(e);
+    const box = compositor.titleBoxNorm();
+    // 文字の上でつかんだときは、つかんだ位置のまま動かす。外をタップしたときは、そこへ飛ばす
+    const grabbed = box &&
+      Math.abs(p.x - box.cx) <= box.w / 2 + 0.04 &&
+      Math.abs(p.y - box.cy) <= box.h / 2 + 0.04;
+    offset = grabbed ? { x: box.cx - p.x, y: box.cy - p.y } : { x: 0, y: 0 };
+    dragging = true;
+    layer.setPointerCapture(e.pointerId);
+    moveTo(p);
+  });
+  layer.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    e.preventDefault();
+    moveTo(pointerToArtwork(e));
+  });
+  const end = () => { dragging = false; };
+  layer.addEventListener('pointerup', end);
+  layer.addEventListener('pointercancel', end);
 }
 
 /* いま選んでいるフィルターに合わせて、映画の色方式とくわしい設定の表示を切り替える */
@@ -1048,13 +1217,20 @@ function setupDrawSurface() {
 
 /* ---------- 保存（書き出し） ---------- */
 
-function setupExportControls() {
+/* 保存形式のチップ。動画作品はGIFにしない（何分もある動画をGIFにする意味がない） */
+function buildFormatChips() {
+  const list = state.workKind === 'video' ? EXPORT_FORMATS.filter((f) => f.id !== 'gif') : EXPORT_FORMATS;
+  if (!list.some((f) => f.id === state.format)) state.format = list[0].id;
   buildChips(
     $('formatChips'),
-    EXPORT_FORMATS.map((f) => ({ value: f.id, label: f.label })),
-    'mp4',
+    list.map((f) => ({ value: f.id, label: f.label })),
+    state.format,
     (id) => { state.format = id; updateFormatHint(); updateLoopInfo(); resetExportResult(); }
   );
+}
+
+function setupExportControls() {
+  buildFormatChips();
 
   buildChips(
     $('durationExportChips'),
@@ -1080,10 +1256,12 @@ function setupExportControls() {
   updateFormatHint();
   $('exportSize').addEventListener('change', resetExportResult);
   $('exportBtn').addEventListener('click', runExport);
+  $('exportCancel').addEventListener('click', () => {
+    if (state.exportAbort) state.exportAbort.aborted = true;
+  });
   $('shareBtn').addEventListener('click', doShare);
   $('quickSave').addEventListener('click', () => {
-    showTab($('tabs'), 'save');
-    setDrawing(false);
+    gotoTab('save');
     $('exportBtn').scrollIntoView({ block: 'center', behavior: 'smooth' });
   });
 
@@ -1106,27 +1284,38 @@ function updateFormatHint() {
   if (state.format === 'mp4' && !pickMimeType()) {
     hint = 'このブラウザでは動画を書き出せません。GIFを選んでください。';
   }
+  if (state.workKind === 'video' && state.format === 'mp4') {
+    hint += '（元の動画と同じ時間をかけて撮り直すように書き出します）';
+  }
   $('formatHint').textContent = hint;
   $('durationExportChips').classList.toggle('is-disabled', state.format === 'gif' || state.format === 'photo');
 }
 
 /* 作品は短いまま、書き出しでくり返す */
 function loopCount() {
-  const loopMs = (store.sequence.length / (player.fps || 10)) * 1000;
+  const loopMs = (store.sequence.length / (burstPlayer.fps || 10)) * 1000;
   if (!loopMs) return 1;
   return Math.max(1, Math.round((state.exportSeconds * 1000) / loopMs));
 }
 
 function updateLoopInfo() {
-  if (!store.sequence.length) {
+  const isVideo = state.workKind === 'video';
+  if (isVideo ? !state.videoBlob : !store.sequence.length) {
     $('loopInfo').textContent = '';
     return;
   }
   if (state.format === 'photo') {
-    $('loopInfo').textContent = 'いま画面に出ているコマ1枚を保存します（動く作品はそのまま残ります）。';
+    $('loopInfo').textContent = isVideo
+      ? 'いま画面に出ているコマ1枚を、写真として保存します（動画はそのまま残ります）。'
+      : 'いま画面に出ているコマ1枚を保存します（動く作品はそのまま残ります）。';
     return;
   }
-  const loopMs = (store.sequence.length / (player.fps || 10)) * 1000;
+  if (isVideo) {
+    $('loopInfo').textContent = '動画は長さの指定なしで、最初から最後まで書き出します（' + fmtClock(videoPlayer.duration) +
+      '）。書き出しは実時間で進むので、同じだけ時間がかかります。終わるまで、この画面を開いたままにしてください。';
+    return;
+  }
+  const loopMs = (store.sequence.length / (burstPlayer.fps || 10)) * 1000;
   if (state.format === 'gif') {
     $('loopInfo').textContent = 'GIFは長さの指定なしで、無限にループします（1周 ' + Math.round(loopMs) + ' ms）。';
     return;
@@ -1145,7 +1334,7 @@ function resetExportResult() {
 
 /* 書き出しの画面サイズ。作品の比率、または書き出し枠から決める */
 function exportBox() {
-  const art = compositor.size;
+  const art = compositor.rect;   // 切り出しの大きさ（元フレームの解像度）。バーストも動画も同じ
   const target = Number($('exportSize').value);
   const frame = SOCIAL_FRAMES.find((f) => f.id === state.socialFrame);
   const ratio = frame ? frame.ratio : null;
@@ -1163,21 +1352,28 @@ function exportBox() {
 }
 
 function makeRenderer(framed) {
-  if (!framed) return (ctx, index, pos, w, h) => compositor.renderTo(ctx, index, pos, w, h);
-  return (ctx, index, pos, w, h) => compositor.renderFramed(ctx, index, pos, w, h, state.background);
+  if (!framed) return (ctx, index, timeSec, w, h) => compositor.renderTo(ctx, index, timeSec, w, h);
+  return (ctx, index, timeSec, w, h) => compositor.renderFramed(ctx, index, timeSec, w, h, state.background);
+}
+
+/* 動画作品用。<video> のいまの1コマを、指定の時刻・サイズで描く */
+function makeVideoRenderer(framed) {
+  if (!framed) return (ctx, t, w, h) => compositor.renderVideoFrame(ctx, workVideo, t, w, h);
+  return (ctx, t, w, h) => compositor.renderVideoFramed(ctx, workVideo, t, w, h, state.background);
 }
 
 async function runExport() {
-  if (state.exporting || !store.sequence.length) return;
+  const isVideo = state.workKind === 'video';
+  if (state.exporting || (isVideo ? !state.videoBlob : !store.sequence.length)) return;
   state.exporting = true;
   $('exportBtn').disabled = true;
   pausePlayback();
   resetExportResult();
 
   const box = exportBox();
-  const render = makeRenderer(box.framed);
-  const fps = player.fps;
   const onProgress = (p, label) => setExportStatus(label + ' ' + Math.round(p * 100) + '%', p);
+  const resumeAt = isVideo ? workVideo.currentTime : 0;
+  let silentNote = '';
 
   try {
     let blob, name;
@@ -1187,22 +1383,47 @@ async function runExport() {
       canvas.width = box.width;
       canvas.height = box.height;
       const ctx = canvas.getContext('2d', { alpha: false });
-      const index = store.sourceIndexAt(player.pos);
-      render(ctx, index, player.pos, box.width, box.height);
+      if (isVideo) {
+        makeVideoRenderer(box.framed)(ctx, workVideo.currentTime, box.width, box.height);
+      } else {
+        const index = store.sourceIndexAt(burstPlayer.pos);
+        makeRenderer(box.framed)(ctx, index, burstPlayer.timeSec, box.width, box.height);
+      }
       blob = await canvasToBlob(canvas, 'image/jpeg', 0.92);
       if (!blob) throw new Error('静止画の書き出しに失敗しました。');
       name = timestampName('jpg');
+    } else if (isVideo) {
+      // 動画作品。元動画を実時間で再生しながら、加工した絵と音を撮り直す
+      state.exportAbort = { aborted: false };
+      $('exportCancel').hidden = false;
+      keepAwake();
+      setExportStatus('音声を準備しています…', 0.02);
+      const audioTrack = await audioTap.prepare();      // 音声コンテキストは、ボタンを押した操作の中で動かす
+      audioTap.setMonitor(false);                       // 書き出し中は音をスピーカーから鳴らさない
+      workVideo.muted = false;
+      setExportStatus('動画を録っています…', 0.03);
+      const out = await encodeVideoWork({
+        video: workVideo,
+        render: makeVideoRenderer(box.framed),
+        width: box.width, height: box.height,
+        audioTrack, duration: videoPlayer.duration,
+        signal: state.exportAbort, onProgress
+      });
+      blob = out.blob;
+      if (out.silent) silentNote = '（音声は写せず、無音で書き出しました）';
+      else if (!audioTrack) silentNote = '（元の動画に音声が無かったか、取り出せませんでした）';
+      name = timestampName(extensionFor(pickMimeType()));
     } else if (state.format === 'gif') {
       setExportStatus('GIFを作っています…', 0.05);
       blob = await encodeGIF({
-        render, sequence: store.sequence, fps,
+        render: makeRenderer(box.framed), sequence: store.sequence, fps: burstPlayer.fps,
         width: box.width, height: box.height, onProgress
       });
       name = timestampName('gif');
     } else {
       setExportStatus('動画を録っています…', 0.05);
       blob = await encodeVideo({
-        render, sequence: store.sequence, fps,
+        render: makeRenderer(box.framed), sequence: store.sequence, fps: burstPlayer.fps,
         width: box.width, height: box.height, loops: loopCount(), onProgress
       });
       name = timestampName(extensionFor(pickMimeType()));
@@ -1214,12 +1435,21 @@ async function runExport() {
     $('exportResult').hidden = false;
     const kb = Math.round(blob.size / 1024);
     setExportStatus('できました（' + box.width + '×' + box.height + ' / ' +
-      (kb > 1024 ? (kb / 1024).toFixed(1) + 'MB' : kb + 'KB') + '）。共有から写真に保存できます。');
+      (kb > 1024 ? (kb / 1024).toFixed(1) + 'MB' : kb + 'KB') + '）' + silentNote + '。共有から写真に保存できます。');
   } catch (err) {
     setExportStatus(err && err.message ? err.message : '書き出しに失敗しました。サイズを小さくして試してください。');
   } finally {
     state.exporting = false;
+    state.exportAbort = null;
     $('exportBtn').disabled = false;
+    $('exportCancel').hidden = true;
+    if (isVideo) {
+      releaseAwake();
+      audioTap.setMonitor(true);
+      workVideo.muted = !state.soundOn;
+      workVideo.loop = true;
+      videoPlayer.seek(resumeAt);
+    }
     player.refresh();
   }
 }
@@ -1237,9 +1467,10 @@ async function doShare() {
 /* ---------- 作品ライブラリ ---------- */
 
 function currentSettings() {
-  return Object.assign(compositor.exportSettings(), {
-    doodle: doodle.items,
-    fps: player.fps,
+  const base = Object.assign(compositor.exportSettings(), { doodle: doodle.items });
+  if (state.workKind === 'video') return base;
+  return Object.assign(base, {
+    fps: burstPlayer.fps,
     frameMode: store.frameMode,
     pingpong: store.pingpong
   });
@@ -1286,10 +1517,6 @@ async function persistNewCapture(result) {
 }
 
 async function refreshLibrary() {
-  if ($('videoViewer') && !$('videoViewer').hidden) {
-    $('videoViewer').hidden = true;
-    $('library').hidden = false;
-  }
   if (!storageAvailable()) {
     $('libNote').textContent = 'このブラウザでは作品を保存できません。';
     return;
@@ -1318,14 +1545,18 @@ async function openCapture(id) {
     const record = await getCapture(id);
     if (!record) return;
     if (record.kind === 'video') {
-      goView('result');
-      showTab($('tabs'), 'lib');
-      setDrawing(false);
-      await openVideoCapture(id, record);
+      // 動画作品も、バーストと同じ加工画面へ開く
+      const videoBlobs = await loadFrameBlobs(id);
+      if (!videoBlobs.length) return;
+      const opened = await enterVideoWork(videoBlobs[0], record);
+      if (opened && !record.editable) {
+        setStatus('旧バージョンで録った動画です。フィルターは録画時に焼き込み済みなので、加工は重ねがけになります。');
+      }
       return;
     }
     const blobs = await loadFrameBlobs(id);
     if (!blobs.length) return;
+    activateBurst();
 
     const canvases = [];
     for (const b of blobs) canvases.push(await blobToCanvas(b));
@@ -1361,7 +1592,7 @@ async function openCapture(id) {
     doodle.redraw();
 
     if (typeof s.fps === 'number') {
-      player.fps = s.fps;
+      burstPlayer.fps = s.fps;
       $('fpsRange').value = String(s.fps);
       $('fpsOut').textContent = String(s.fps);
     }
@@ -1377,8 +1608,7 @@ async function openCapture(id) {
     syncUIFromCompositor();
     renderResult();
     goView('result');
-    showTab($('tabs'), 'play');
-    setDrawing(false);
+    gotoTab('play');
     updateToResultLabel();
     refreshLibrary();
   } catch (e) {
@@ -1405,7 +1635,9 @@ setupDrawControls();
 setupExportControls();
 
 setupTabs($('tabs'), (name) => {
+  state.tab = name;
   setDrawing(name === 'draw');
+  syncTextEditing();
   if (name === 'lib') refreshLibrary();
   if (name === 'save') updateLoopInfo();
   if (floatingPreview) floatingPreview.refresh();
@@ -1421,6 +1653,7 @@ floatingPreview = new FloatingPreview({
 });
 
 selectChip($('frameModeChips'), DEFAULT_FRAME_MODE);
+applyWorkKindUI('burst');
 updateToResultLabel();
 goView('camera');
 refreshLibrary();

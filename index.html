@@ -95,13 +95,6 @@
 
     <p class="status" id="status" role="status">撮影時間を選んで、シャッターと同時にカメラを横へ滑らせてください。</p>
 
-    <div class="exportResult" id="videoResult" hidden>
-      <p class="hint" id="videoResultNote">動画を保存しました。</p>
-      <a class="btn btn--ghost btn--wide" id="videoDownloadLink" download>ダウンロード</a>
-      <button class="btn btn--primary btn--wide" id="videoShareBtn" type="button">共有して写真に保存</button>
-      <button class="btn btn--ghost btn--wide" id="videoToLibraryBtn" type="button">ライブラリで見る</button>
-    </div>
-
     <div class="panel">
       <fieldset class="field">
         <legend class="field__label">撮影モード</legend>
@@ -113,19 +106,9 @@
         <div class="chips" id="durationChips" role="radiogroup" aria-label="撮影時間"></div>
       </fieldset>
 
-      <fieldset class="field" id="videoFilterField" hidden>
-        <legend class="field__label">動画のフィルター（録画前に選びます）</legend>
-        <div class="chips chips--filters" id="videoFilterChips" role="radiogroup" aria-label="動画のフィルター"></div>
-        <label class="range">
-          <span class="range__label">フィルターの強さ <output id="videoIntensityOut">100</output>%</span>
-          <input type="range" id="videoIntensityRange" min="0" max="150" step="5" value="100">
-        </label>
-        <fieldset class="field" id="videoCinemaVariantField" hidden>
-          <legend class="field__label">色の方式</legend>
-          <div class="chips" id="videoCinemaVariantChips" role="radiogroup" aria-label="映画の色の方式"></div>
-        </fieldset>
-        <p class="hint">音声付きで、この端末に直接保存されます。撮影後の加工はできないので、フィルターは録画前に選んでください。</p>
-      </fieldset>
+      <div class="field" id="videoModeHint" hidden>
+        <p class="hint">録画は無加工のまま保存されます。フィルター・縦横比・文字は、録画したあとの加工画面で、バースト撮影と同じように付けられます。長さの上限はありません。</p>
+      </div>
 
       <fieldset class="field">
         <legend class="field__label">セルフタイマー</legend>
@@ -165,6 +148,8 @@
     <div class="loop" id="loopWrap">
       <canvas id="loopCanvas"></canvas>
       <div class="loop__drawLayer" id="drawLayer" hidden></div>
+      <div class="loop__titleGuide" id="titleGuide" hidden aria-hidden="true"></div>
+      <div class="loop__titleLayer" id="titleLayer" hidden></div>
     </div>
 
     <div class="quickRow">
@@ -176,20 +161,21 @@
     <nav class="tabs" id="tabs" role="tablist">
       <button class="tab" role="tab" data-tab="play" aria-selected="true">再生</button>
       <button class="tab" role="tab" data-tab="look" aria-selected="false">加工</button>
+      <button class="tab" role="tab" data-tab="text" aria-selected="false">テキスト</button>
       <button class="tab" role="tab" data-tab="draw" aria-selected="false">落書き</button>
       <button class="tab" role="tab" data-tab="save" aria-selected="false">保存</button>
       <button class="tab" role="tab" data-tab="lib" aria-selected="false">作品</button>
-      <button class="tab" role="tab" data-tab="data" aria-selected="false">検証</button>
+      <button class="tab" role="tab" data-tab="data" data-only="burst" aria-selected="false">検証</button>
     </nav>
 
     <!-- 再生 -->
     <div class="tabPanel" data-panel="play">
-      <fieldset class="field">
+      <fieldset class="field" data-only="burst">
         <legend class="field__label">使うコマ数</legend>
         <div class="chips" id="frameModeChips" role="radiogroup" aria-label="コマ数"></div>
       </fieldset>
 
-      <div class="field field--row">
+      <div class="field field--row" data-only="burst">
         <label class="range">
           <span class="range__label">再生速度 <output id="fpsOut">10</output> fps</span>
           <input type="range" id="fpsRange" min="2" max="30" step="1" value="10">
@@ -200,7 +186,22 @@
         </label>
       </div>
 
-      <div class="field">
+      <div class="field" data-only="video">
+        <label class="range">
+          <span class="range__label">再生位置 <output id="videoTimeOut">0:00 / 0:00</output></span>
+          <input type="range" id="videoSeekRange" min="0" max="1000" step="1" value="0">
+        </label>
+        <div class="scrubRow">
+          <button class="btn btn--ghost" id="videoPrevFrame" type="button">◀ 前のコマ</button>
+          <button class="btn btn--ghost" id="videoNextFrame" type="button">次のコマ ▶</button>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="videoSoundToggle" checked>
+          <span>音を出して再生する</span>
+        </label>
+      </div>
+
+      <div class="field" data-only="burst">
         <label class="range">
           <span class="range__label">コマ送り <output id="scrubOut">1 / 1</output></span>
           <input type="range" id="scrubRange" min="0" max="0" step="1" value="0">
@@ -263,6 +264,11 @@
         </label>
         <p class="hint">VHS や Hi8 と重ねると、テレビで再生した映像のようになります。4:3 と相性がよいです。</p>
       </fieldset>
+    </div>
+
+    <!-- テキスト -->
+    <div class="tabPanel" data-panel="text" hidden>
+      <p class="hint">ここで入れた文字は、フィルターやブラウン管の「下」に敷かれます。VHSのノイズがかかり、ブラウン管の湾曲にそって曲がります。</p>
 
       <fieldset class="field">
         <legend class="field__label">日付の焼き込み</legend>
@@ -306,6 +312,9 @@
           <input type="range" id="osdOutlineWidthRange" min="20" max="200" step="10" value="100">
         </label>
 
+        <p class="hint">タイトルは、プレビューをなぞると好きな位置へ動かせます。</p>
+        <button class="btn btn--ghost" id="osdTitleReset" type="button">タイトルの位置を初期位置に戻す</button>
+
         <div class="field field--row">
           <label class="toggle">
             <input type="checkbox" id="osdTransportToggle">
@@ -316,7 +325,7 @@
             <span>右下にテープカウンターを表示する</span>
           </label>
         </div>
-        <p class="hint">当時のビデオデッキがテープに焼き込んでいたような文字を、映像の上に重ねます。カウンターは再生・書き出しのあいだ実際に数字が動きます。</p>
+        <p class="hint">当時のビデオデッキがテープに焼き込んでいたような文字を、映像に重ねます。カウンターは「0:00:00」（時:分:秒）で、再生・書き出しのあいだ実際に進みます。</p>
       </fieldset>
     </div>
 
@@ -345,7 +354,7 @@
         <p class="hint" id="formatHint"></p>
       </fieldset>
 
-      <fieldset class="field">
+      <fieldset class="field" data-only="burst">
         <legend class="field__label">動画の長さ</legend>
         <div class="chips" id="durationExportChips" role="radiogroup" aria-label="動画の長さ"></div>
         <p class="hint" id="loopInfo"></p>
@@ -370,6 +379,7 @@
       </div>
 
       <button class="btn btn--primary btn--wide" id="exportBtn" type="button">作って保存・共有</button>
+      <button class="btn btn--ghost btn--wide" id="exportCancel" type="button" hidden>書き出しを中止</button>
       <div class="exportStatus" id="exportStatus" role="status"></div>
       <div class="exportResult" id="exportResult" hidden>
         <a class="btn btn--ghost btn--wide" id="downloadLink" download>ダウンロード</a>
@@ -381,15 +391,6 @@
     <div class="tabPanel" data-panel="lib" hidden>
       <p class="hint" id="libNote">撮った作品はこの端末の中だけに保存されます。どこにも送信されません。</p>
       <div class="library" id="library"></div>
-
-      <div class="videoViewer" id="videoViewer" hidden>
-        <button class="btn btn--ghost btn--wide" id="videoViewerBack" type="button">← 作品一覧へ戻る</button>
-        <video class="videoViewer__player" id="videoViewerPlayer" controls playsinline></video>
-        <p class="hint" id="videoViewerMeta"></p>
-        <a class="btn btn--ghost btn--wide" id="videoViewerDownload" download>ダウンロード</a>
-        <button class="btn btn--primary btn--wide" id="videoViewerShare" type="button">共有して写真に保存</button>
-        <button class="btn btn--ghost btn--wide" id="videoViewerDelete" type="button">この動画を削除</button>
-      </div>
     </div>
 
     <!-- 検証 -->
@@ -417,6 +418,9 @@
   <span class="pip__handle">⠿</span>
   <span class="pip__resize" id="pipResize" aria-hidden="true"></span>
 </div>
+
+<!-- 動画作品の加工用。画面の外に置く（見せるのは #loopCanvas に描いた加工後の絵） -->
+<video class="offscreenVideo" id="workVideo" playsinline preload="auto" muted></video>
 
 <script type="module" src="./js/main.js"></script>
 </body>

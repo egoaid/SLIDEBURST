@@ -30,34 +30,63 @@ function drawTracked(ctx, text, x, y, tracking, stroke) {
   }
 }
 
+/* 文字の幅を測るためだけの小さなcanvas */
+let measureCtx = null;
+function getMeasureCtx() {
+  if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d');
+  return measureCtx;
+}
+
+export const TITLE_DEFAULT_X = 0.5;
+export const TITLE_DEFAULT_Y = 0.84;
+
+function titleMetrics(ctx, o, height) {
+  const font = fontOf(o.font);
+  const px = Math.max(10, height * 0.075 * ((o.sizePct || 100) / 100));
+  const tracking = px * font.tracking;
+  ctx.font = font.weight + ' ' + Math.round(px) + 'px ' + font.stack;
+  const w = trackedWidth(ctx, o.text, tracking);
+  return { font, px, tracking, w };
+}
+
 /**
- * タイトルスーパー。画面下寄りに中央揃えで、大きめの縁取り文字を出す。
+ * タイトルの外枠（0〜1の割合。中心と大きさ）。ドラッグ操作の当たり判定と、点線ガイドに使う。
+ * ブラウン管で曲げる前の座標。
+ */
+export function titleBox(o, width, height) {
+  if (!o.text) return null;
+  const m = titleMetrics(getMeasureCtx(), o, height);
+  const cx = typeof o.titleX === 'number' ? o.titleX : TITLE_DEFAULT_X;
+  const cy = typeof o.titleY === 'number' ? o.titleY : TITLE_DEFAULT_Y;
+  return { cx, cy, w: m.w / width, h: (m.px * 1.05) / height };
+}
+
+/**
+ * タイトルスーパー。titleX / titleY（0〜1）が文字の中心。ドラッグで自由に動かせる。
  * @param {CanvasRenderingContext2D} ctx
- * @param {Object} o {text, font, color, outline, outlineColor, outlineWidthPct, sizePct, width, height}
+ * @param {Object} o {text, font, color, outline, outlineColor, outlineWidthPct, sizePct, titleX, titleY, width, height}
  */
 export function drawOSDTitle(ctx, o) {
   const text = o.text;
   if (!text) return;
-  const font = fontOf(o.font);
-  const px = Math.max(10, o.height * 0.075 * ((o.sizePct || 100) / 100));
-  const tracking = px * font.tracking;
   const outline = o.outline !== false;
 
   ctx.save();
-  ctx.font = font.weight + ' ' + Math.round(px) + 'px ' + font.stack;
+  const m = titleMetrics(ctx, o, o.height);
   ctx.textBaseline = 'alphabetic';
-  const w = trackedWidth(ctx, text, tracking);
-  const x = (o.width - w) / 2;
-  const y = o.height * 0.86;
+  const cx = (typeof o.titleX === 'number' ? o.titleX : TITLE_DEFAULT_X) * o.width;
+  const cy = (typeof o.titleY === 'number' ? o.titleY : TITLE_DEFAULT_Y) * o.height;
+  const x = cx - m.w / 2;
+  const y = cy + m.px * 0.325;
 
   if (outline) {
     ctx.strokeStyle = o.outlineColor || '#12161c';
     ctx.lineJoin = 'round';
     ctx.miterLimit = 2;
-    ctx.lineWidth = Math.max(1, px * 0.16 * ((o.outlineWidthPct != null ? o.outlineWidthPct : 100) / 100));
+    ctx.lineWidth = Math.max(1, m.px * 0.16 * ((o.outlineWidthPct != null ? o.outlineWidthPct : 100) / 100));
   }
   ctx.fillStyle = o.color || '#ffffff';
-  drawTracked(ctx, text, x, y, tracking, outline);
+  drawTracked(ctx, text, x, y, m.tracking, outline);
   ctx.restore();
 }
 
@@ -78,12 +107,20 @@ export function drawOSDTransport(ctx, { label = 'PLAY', width, height }) {
   ctx.restore();
 }
 
-/* 右下のテープカウンター。時刻ではなく、実機の機械式カウンターと同じ「巻き取り量」
-   相当の4桁の数字にしている（呼び出し側が渡す value を毎コマ増やすだけで動く）。 */
-export function drawOSDCounter(ctx, { value = 0, width, height }) {
+/* テープカウンターの表記。0:00:00（時:分:秒）。再生位置の秒数から作る */
+export function formatCounter(sec) {
+  const t = Math.max(0, Math.floor(sec || 0));
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = t % 60;
+  return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+}
+
+/* 右下のテープカウンター。ビデオデッキの経過時間表示と同じ h:mm:ss */
+export function drawOSDCounter(ctx, { timeSec = 0, width, height, bottomOffset = 0 }) {
   const px = Math.max(10, Math.min(width, height) * 0.052);
   const margin = Math.round(Math.min(width, height) * 0.045);
-  const text = String(((Math.round(value) % 10000) + 10000) % 10000).padStart(4, '0');
+  const text = formatCounter(timeSec);
   ctx.save();
   ctx.font = '700 ' + Math.round(px) + 'px "Courier New", "Osaka-Mono", monospace';
   ctx.textBaseline = 'alphabetic';
@@ -93,6 +130,6 @@ export function drawOSDCounter(ctx, { value = 0, width, height }) {
   ctx.shadowOffsetX = px * 0.05;
   ctx.shadowOffsetY = px * 0.05;
   const w = ctx.measureText(text).width;
-  ctx.fillText(text, width - margin - w, height - margin);
+  ctx.fillText(text, width - margin - w, height - margin - bottomOffset);
   ctx.restore();
 }

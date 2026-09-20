@@ -188,7 +188,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /**
  * ループGIFを作る。
  * @param {Object} o {render, sequence, fps, width, height, onProgress}
- *   render(ctx, index, pos, width, height) — pos は往復列の中の再生位置（テープカウンター用）
+ *   render(ctx, index, timeSec, width, height) — timeSec は1周の中の経過秒数（テープカウンター用）
  * @returns {Promise<Blob>}
  */
 export async function encodeGIF({ render, sequence, fps, width, height, onProgress }) {
@@ -201,7 +201,7 @@ export async function encodeGIF({ render, sequence, fps, width, height, onProgre
   // （以前は同じコマ番号をまとめて1回だけ描いていたが、それだとpos依存の表示が焼けない）
   const buffers = [];
   for (let i = 0; i < sequence.length; i++) {
-    render(ctx, sequence[i], i, width, height);
+    render(ctx, sequence[i], i / fps, width, height);
     buffers.push(ctx.getImageData(0, 0, width, height).data);
     if (onProgress) onProgress(0.1 + (0.25 * (i + 1)) / sequence.length, 'コマを準備中');
     await sleep(0);

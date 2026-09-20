@@ -1,14 +1,10 @@
-/* video-record.js — 音声付きの「ふつうの動画」を、その場でフィルターをかけながら録画する。
-   バースト撮影（複数コマを撮って立体パラパラを作る）とは別の、単純な連続録画モード。
-   仕組み: <video> の毎フレームを scratch canvas に描き、filters.js の applyFilter() を通してから
-   出力用 canvas へ描く。その出力 canvas を captureStream() し、元のメディアストリームの
-   音声トラックと合わせて MediaRecorder に渡す。 */
-
-import { applyFilter } from './filters.js';
+/* video-record.js — 「ふつうの動画」を、無加工のまま録画する。
+   カメラのストリーム（映像＋音声）を MediaRecorder へそのまま渡すだけ。
+   フィルターや縦横比、文字は録画後の加工画面でかける。録画中は画素処理が一切走らないので、
+   長さの上限は設けない（端末の空き容量と、メモリが許す限り撮れる）。 */
 
 export function videoRecordSupported() {
-  return typeof MediaRecorder !== 'undefined' &&
-    typeof HTMLCanvasElement.prototype.captureStream === 'function';
+  return typeof MediaRecorder !== 'undefined';
 }
 
 const CANDIDATES = [
@@ -33,87 +29,90 @@ export function videoExtensionFor(mime) {
   return mime && mime.indexOf('mp4') >= 0 ? 'mp4' : 'webm';
 }
 
+/* 録画のビットレート。720p前後の実用画質で、1分あたり約45MB */
+export const RECORD_VIDEO_BPS = 6000000;
+export const RECORD_AUDIO_BPS = 128000;
+
+/* 空き容量がこれを下回りそうになったら、データを失う前に自動で止める */
+const MIN_FREE_BYTES = 150 * 1024 * 1024;
+
+async function freeBytes() {
+  if (navigator.storage && navigator.storage.estimate) {
+    try {
+      const e = await navigator.storage.estimate();
+      if (e && e.quota) return e.quota - (e.usage || 0);
+    } catch (err) { /* 取れない環境は見張りをあきらめる */ }
+  }
+  return null;
+}
+
 export class VideoRecorder {
   constructor() {
     this.recording = false;
-    this.raw = document.createElement('canvas');
-    this.rawCtx = this.raw.getContext('2d', { alpha: false });
-    this.out = document.createElement('canvas');
-    this.outCtx = this.out.getContext('2d', { alpha: false });
-    this.rafId = null;
     this.mediaRecorder = null;
     this.chunks = [];
+    this.bytes = 0;
     this.startedAt = 0;
-    this.frameIndex = 0;
+    this.timer = null;
     this._stopped = null;
+    this._checking = false;
   }
 
   /**
    * 録画を開始する。
    * @param {Object} o
-   * @param {HTMLVideoElement} o.video ライブプレビューの video 要素
-   * @param {number} o.width 出力の幅
-   * @param {number} o.height 出力の高さ
-   * @param {MediaStream} o.mediaStream 音声トラックを取り出す元ストリーム（無くてもよい）
-   * @param {string} o.filterId フィルターID（'none' でそのまま）
-   * @param {Object} o.filterParams フィルターの解決済みパラメータ
-   * @param {number} [o.maxMs] 最長録画時間（安全のための上限）
-   * @param {(elapsedMs:number)=>void} [o.onTick] 経過時間の通知
-   * @param {(result:{blob:Blob,durationMs:number,mime:string}|null)=>void} [o.onAutoStop]
-   *   maxMsに達して自動停止したときに呼ばれる（呼び出し側が明示的にstop()した場合は呼ばれない）
+   * @param {MediaStream} o.stream カメラ（と、あればマイク）のストリーム
+   * @param {(elapsedMs:number, bytes:number)=>void} [o.onTick] 経過時間と、ここまでの大きさの通知
+   * @param {(result:{blob:Blob,durationMs:number,mime:string}|null, reason:string)=>void} [o.onAutoStop]
+   *   空き容量が足りなくなって自動停止したときに呼ばれる（stop() を呼んだ場合は呼ばれない）
    */
-  start({ video, width, height, mediaStream, filterId, filterParams, maxMs = 60000, onTick, onAutoStop }) {
-    if (this.recording) return false;
+  start({ stream, onTick, onAutoStop }) {
+    if (this.recording || !stream) return false;
     if (!videoRecordSupported()) return false;
-
-    this.raw.width = width;
-    this.raw.height = height;
-    this.out.width = width;
-    this.out.height = height;
-    this.frameIndex = 0;
-
-    const draw = () => {
-      if (!this.recording) return;
-      this.rawCtx.drawImage(video, 0, 0, width, height);
-      if (filterId && filterId !== 'none') {
-        const filtered = applyFilter(this.raw, filterId, this.frameIndex, filterParams || {});
-        this.outCtx.drawImage(filtered, 0, 0);
-      } else {
-        this.outCtx.drawImage(this.raw, 0, 0);
-      }
-      this.frameIndex++;
-      const elapsed = performance.now() - this.startedAt;
-      if (onTick) onTick(elapsed);
-      if (elapsed >= maxMs) {
-        this.stop().then((result) => { if (onAutoStop) onAutoStop(result); });
-        return;
-      }
-      this.rafId = requestAnimationFrame(draw);
-    };
-
-    const canvasStream = this.out.captureStream(30);
-    const audioTracks = mediaStream ? mediaStream.getAudioTracks() : [];
-    const tracks = [...canvasStream.getVideoTracks(), ...audioTracks];
-    const combined = new MediaStream(tracks);
 
     const mime = pickVideoMimeType();
     this.chunks = [];
+    this.bytes = 0;
     try {
-      this.mediaRecorder = new MediaRecorder(combined, Object.assign(
-        { videoBitsPerSecond: 8000000 },
+      this.mediaRecorder = new MediaRecorder(stream, Object.assign(
+        { videoBitsPerSecond: RECORD_VIDEO_BPS, audioBitsPerSecond: RECORD_AUDIO_BPS },
         mime ? { mimeType: mime } : {}
       ));
     } catch (e) {
       return false;
     }
-    this.mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) this.chunks.push(e.data); };
+    this.mediaRecorder.ondataavailable = (e) => {
+      if (e.data && e.data.size) {
+        this.chunks.push(e.data);
+        this.bytes += e.data.size;
+      }
+      this._guardStorage(onAutoStop);
+    };
     this._stopped = new Promise((resolve) => { this.mediaRecorder.onstop = resolve; });
 
     this.recording = true;
     this.startedAt = performance.now();
-    this.mediaRecorder.start();
-    this.rafId = requestAnimationFrame(draw);
+    // 数秒ごとにデータを受け取って手元に積む（最後にまとめて受け取るより、途中で失いにくい）
+    this.mediaRecorder.start(3000);
+    this.timer = setInterval(() => {
+      if (onTick) onTick(performance.now() - this.startedAt, this.bytes);
+    }, 250);
     return true;
+  }
+
+  /* 空き容量の見張り。録画済みのぶんは保存にも同じだけ要るので、その2倍で見積もる */
+  async _guardStorage(onAutoStop) {
+    if (this._checking || !this.recording) return;
+    this._checking = true;
+    try {
+      const free = await freeBytes();
+      if (free !== null && this.recording && free - this.bytes < MIN_FREE_BYTES) {
+        const result = await this.stop();
+        if (onAutoStop) onAutoStop(result, 'storage');
+      }
+    } finally {
+      this._checking = false;
+    }
   }
 
   /**
@@ -123,13 +122,14 @@ export class VideoRecorder {
   async stop() {
     if (!this.recording || !this.mediaRecorder) return null;
     this.recording = false;
-    if (this.rafId) cancelAnimationFrame(this.rafId);
-    this.rafId = null;
+    clearInterval(this.timer);
+    this.timer = null;
     const durationMs = performance.now() - this.startedAt;
     if (this.mediaRecorder.state !== 'inactive') this.mediaRecorder.stop();
     await this._stopped;
-    const mime = this.mediaRecorder.mimeType || 'video/webm';
+    const mime = this.mediaRecorder.mimeType || pickVideoMimeType() || 'video/webm';
     const blob = new Blob(this.chunks, { type: mime });
+    this.chunks = [];
     return { blob, durationMs, mime };
   }
 }

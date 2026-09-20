@@ -39,3 +39,14 @@
   opacity: 0.01;
   pointer-events: none;
 }
+
+/* 動画作品の加工用 <video>。画面の外に置くが、デコードは止めさせない */
+.offscreenVideo {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 2px;
+  height: 2px;
+  opacity: 0.01;
+  pointer-events: none;
+}

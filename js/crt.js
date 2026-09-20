@@ -8,13 +8,55 @@ function makeCanvas(w, h) {
   return c;
 }
 
-/* 横方向と縦方向を2回に分けて樽型に歪ませる。短冊を並べる近似 */
-function barrel(src, k) {
-  const w = src.width, h = src.height;
-  const slices = 28;
-  const curve = 0.055 * k;
+/* 動画のように毎コマ呼ぶ場合、canvas を作っては捨てるとGCで重くなる。
+   pooled=true のときだけ、名前ごとに使い回す。返した canvas は次の呼び出しで書き換わるので、
+   呼び出し側はすぐ描き写すこと（キャッシュには入れない）。 */
+const pool = new Map();
+function getCanvas(name, w, h, pooled) {
+  if (!pooled) return makeCanvas(w, h);
+  let c = pool.get(name);
+  if (!c) {
+    c = document.createElement('canvas');
+    pool.set(name, c);
+  }
+  if (c.width !== w || c.height !== h) {
+    c.width = w;
+    c.height = h;
+  }
+  return c;
+}
 
-  const pass1 = makeCanvas(w, h);
+const SLICES = 28;
+const CURVE = 0.055;
+
+/* 樽型歪みで、元の画面上の点(0〜1)が画面のどこへ動くか。文字の位置を合わせるために使う */
+export function crtWarpPoint(nx, ny, k = 1) {
+  const c = CURVE * k;
+  const dy = (ny - 0.5) * 2;
+  const x1 = 0.5 + (nx - 0.5) * (1 - c * dy * dy);
+  const dx = (x1 - 0.5) * 2;
+  const y2 = 0.5 + (ny - 0.5) * (1 - c * dx * dx);
+  return { x: x1, y: y2 };
+}
+
+/* 画面上の点から、元の位置を逆算する（ドラッグ用。数回の反復で十分収束する） */
+export function crtUnwarpPoint(x, y, k = 1) {
+  let sx = x, sy = y;
+  for (let i = 0; i < 6; i++) {
+    const f = crtWarpPoint(sx, sy, k);
+    sx += x - f.x;
+    sy += y - f.y;
+  }
+  return { x: sx, y: sy };
+}
+
+/* 横方向と縦方向を2回に分けて樽型に歪ませる。短冊を並べる近似 */
+function barrel(src, k, pooled) {
+  const w = src.width, h = src.height;
+  const slices = SLICES;
+  const curve = CURVE * k;
+
+  const pass1 = getCanvas('pass1', w, h, pooled);
   const c1 = pass1.getContext('2d', { alpha: false });
   c1.fillStyle = '#000';
   c1.fillRect(0, 0, w, h);
@@ -27,7 +69,7 @@ function barrel(src, k) {
     c1.drawImage(src, 0, sy, w, sh, (w - dw) / 2, sy, dw, sh);
   }
 
-  const pass2 = makeCanvas(w, h);
+  const pass2 = getCanvas('pass2', w, h, pooled);
   const c2 = pass2.getContext('2d', { alpha: false });
   c2.fillStyle = '#000';
   c2.fillRect(0, 0, w, h);
@@ -66,18 +108,20 @@ function roundedMask(ctx, w, h, radius) {
  * ブラウン管風に変換した canvas を返す。
  * @param {HTMLCanvasElement} source
  * @param {number} k 強さ 0〜1.5
+ * @param {boolean} pooled true なら内部の canvas を使い回す（動画用。返り値は次の呼び出しで書き換わる）
  */
-export function applyCRT(source, k = 1) {
+export function applyCRT(source, k = 1, pooled = false) {
   const w = source.width, h = source.height;
-  const warped = barrel(source, k);
+  const warped = barrel(source, k, pooled);
 
   // 走査線とにじみは透明キャンバスに重ねてから、角を丸めて黒地へ置く
-  const screen = makeCanvas(w, h);
+  const screen = getCanvas('screen', w, h, pooled);
   const ctx = screen.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
   ctx.drawImage(warped, 0, 0);
 
   // 発光。明るいところがふくらむ
-  const glow = makeCanvas(Math.max(2, w >> 2), Math.max(2, h >> 2));
+  const glow = getCanvas('glow', Math.max(2, w >> 2), Math.max(2, h >> 2), pooled);
   glow.getContext('2d').drawImage(warped, 0, 0, glow.width, glow.height);
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
@@ -110,7 +154,7 @@ export function applyCRT(source, k = 1) {
 
   roundedMask(ctx, w, h, Math.min(w, h) * 0.075 * Math.min(1.2, k));
 
-  const out = makeCanvas(w, h);
+  const out = getCanvas('out', w, h, pooled);
   const octx = out.getContext('2d', { alpha: false });
   octx.fillStyle = '#05070a';
   octx.fillRect(0, 0, w, h);

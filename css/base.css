@@ -94,3 +94,7 @@ button, input, select, output {
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
 }
+
+/* hidden 属性は、display を持つクラス（.field など）より必ず優先させる。
+   これが無いと、.field に hidden を付けても隠れない（v0.5.1 で実際に起きた）。 */
+[hidden] { display: none !important; }
