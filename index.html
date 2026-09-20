@@ -61,6 +61,10 @@
         </div>
       </div>
       <div class="stage__flash" id="flash" aria-hidden="true"></div>
+      <div class="stage__rec" id="recIndicator" hidden aria-hidden="true">
+        <span class="stage__recDot"></span>
+        <span id="recTime">0:00</span>
+      </div>
       <div class="stage__countdown" id="countdown" hidden aria-hidden="true">
         <span class="stage__countdownNum" id="countdownNum">3</span>
         <button class="stage__countdownCancel" id="countdownCancel" type="button">キャンセル</button>
@@ -83,18 +87,44 @@
         <span class="shutter__text" id="shutterText">0.10s</span>
       </button>
 
-      <button class="iconBtn" id="toResult" type="button" disabled>
+      <button class="iconBtn" id="toResult" type="button">
         <span class="iconBtn__glyph" aria-hidden="true">▤</span>
-        <span class="iconBtn__text">結果</span>
+        <span class="iconBtn__text" id="toResultText">作品</span>
       </button>
     </div>
 
     <p class="status" id="status" role="status">撮影時間を選んで、シャッターと同時にカメラを横へ滑らせてください。</p>
 
+    <div class="exportResult" id="videoResult" hidden>
+      <p class="hint" id="videoResultNote">動画を保存しました。</p>
+      <a class="btn btn--ghost btn--wide" id="videoDownloadLink" download>ダウンロード</a>
+      <button class="btn btn--primary btn--wide" id="videoShareBtn" type="button">共有して写真に保存</button>
+      <button class="btn btn--ghost btn--wide" id="videoToLibraryBtn" type="button">ライブラリで見る</button>
+    </div>
+
     <div class="panel">
       <fieldset class="field">
+        <legend class="field__label">撮影モード</legend>
+        <div class="chips" id="captureModeChips" role="radiogroup" aria-label="撮影モード"></div>
+      </fieldset>
+
+      <fieldset class="field" id="durationField">
         <legend class="field__label">撮影時間</legend>
         <div class="chips" id="durationChips" role="radiogroup" aria-label="撮影時間"></div>
+      </fieldset>
+
+      <fieldset class="field" id="videoFilterField" hidden>
+        <legend class="field__label">動画のフィルター（録画前に選びます）</legend>
+        <div class="chips chips--filters" id="videoFilterChips" role="radiogroup" aria-label="動画のフィルター"></div>
+        <label class="range">
+          <span class="range__label">フィルターの強さ <output id="videoIntensityOut">100</output>%</span>
+          <input type="range" id="videoIntensityRange" min="0" max="150" step="5" value="100">
+        </label>
+        <fieldset class="field" id="videoCinemaVariantField" hidden>
+          <legend class="field__label">色の方式</legend>
+          <div class="chips" id="videoCinemaVariantChips" role="radiogroup" aria-label="映画の色の方式"></div>
+        </fieldset>
+        <p class="hint">音声付きで、この端末に直接保存されます。撮影後の加工はできないので、フィルターは録画前に選んでください。</p>
       </fieldset>
 
       <fieldset class="field">
@@ -246,6 +276,48 @@
         <div class="chips" id="stampColorChips" role="radiogroup" aria-label="日付の色"></div>
         <p class="hint">数字は当時のカメラと同じ7セグメント表示で焼き込まれます。文字は自由に書き換えられます。</p>
       </fieldset>
+
+      <fieldset class="field">
+        <legend class="field__label">VHS風の文字</legend>
+
+        <div class="stampRow">
+          <label class="toggle">
+            <input type="checkbox" id="osdTitleToggle">
+            <span>タイトルを表示する</span>
+          </label>
+          <input class="textInput" id="osdTitleText" type="text" inputmode="text" maxlength="30" aria-label="タイトルの文字" placeholder="タイトルを入力">
+        </div>
+        <p class="hint">フォント</p>
+        <div class="chips" id="osdFontChips" role="radiogroup" aria-label="タイトルのフォント"></div>
+        <p class="hint">文字の色</p>
+        <div class="chips" id="osdColorChips" role="radiogroup" aria-label="タイトルの色"></div>
+        <label class="range">
+          <span class="range__label">文字の大きさ <output id="osdSizeOut">100</output>%</span>
+          <input type="range" id="osdSizeRange" min="50" max="200" step="5" value="100">
+        </label>
+
+        <label class="toggle">
+          <input type="checkbox" id="osdOutlineToggle" checked>
+          <span>縁取りする</span>
+        </label>
+        <div class="chips" id="osdOutlineColorChips" role="radiogroup" aria-label="縁取りの色"></div>
+        <label class="range">
+          <span class="range__label">縁取りの太さ <output id="osdOutlineWidthOut">100</output>%</span>
+          <input type="range" id="osdOutlineWidthRange" min="20" max="200" step="10" value="100">
+        </label>
+
+        <div class="field field--row">
+          <label class="toggle">
+            <input type="checkbox" id="osdTransportToggle">
+            <span>左上に「▶ PLAY」を表示する</span>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" id="osdCounterToggle">
+            <span>右下にテープカウンターを表示する</span>
+          </label>
+        </div>
+        <p class="hint">当時のビデオデッキがテープに焼き込んでいたような文字を、映像の上に重ねます。カウンターは再生・書き出しのあいだ実際に数字が動きます。</p>
+      </fieldset>
     </div>
 
     <!-- 落書き -->
@@ -309,6 +381,15 @@
     <div class="tabPanel" data-panel="lib" hidden>
       <p class="hint" id="libNote">撮った作品はこの端末の中だけに保存されます。どこにも送信されません。</p>
       <div class="library" id="library"></div>
+
+      <div class="videoViewer" id="videoViewer" hidden>
+        <button class="btn btn--ghost btn--wide" id="videoViewerBack" type="button">← 作品一覧へ戻る</button>
+        <video class="videoViewer__player" id="videoViewerPlayer" controls playsinline></video>
+        <p class="hint" id="videoViewerMeta"></p>
+        <a class="btn btn--ghost btn--wide" id="videoViewerDownload" download>ダウンロード</a>
+        <button class="btn btn--primary btn--wide" id="videoViewerShare" type="button">共有して写真に保存</button>
+        <button class="btn btn--ghost btn--wide" id="videoViewerDelete" type="button">この動画を削除</button>
+      </div>
     </div>
 
     <!-- 検証 -->

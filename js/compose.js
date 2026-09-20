@@ -5,6 +5,7 @@
 import { applyFilter, getDefaultParams } from './filters.js';
 import { applyCRT } from './crt.js';
 import { drawStamp } from './datestamp.js';
+import { drawOSDTitle, drawOSDTransport, drawOSDCounter } from './osd.js';
 import { cropRect, ratioOf, fitRect } from './crop.js';
 
 function makeCanvas(w, h) {
@@ -13,6 +14,20 @@ function makeCanvas(w, h) {
   c.height = h;
   return c;
 }
+
+const DEFAULT_OSD = {
+  titleEnabled: false,
+  titleText: '',
+  font: 'gothic',
+  color: '#ffffff',
+  outline: true,
+  outlineColor: '#12161c',
+  outlineWidthPct: 100,
+  sizePct: 100,
+  transportEnabled: false,
+  transportLabel: 'PLAY',
+  counterEnabled: false
+};
 
 export class Compositor {
   constructor(store, doodle) {
@@ -27,6 +42,7 @@ export class Compositor {
     this.aspectId = 'src';
     this.offsetY = 0.5;
     this.stamp = { enabled: false, text: '', color: '#ff8a1f' };
+    this.osd = Object.assign({}, DEFAULT_OSD);
     this.cache = new Map();
     this.stageCache = new Map();
     this.stageSig = '';
@@ -90,6 +106,8 @@ export class Compositor {
   setAspect(id) { this.aspectId = id; }
   setOffsetY(v) { this.offsetY = v; }
   setStamp(patch) { Object.assign(this.stamp, patch); }
+  setOSD(patch) { Object.assign(this.osd, patch); }
+  resetOSD() { this.osd = Object.assign({}, DEFAULT_OSD); }
   invalidate() { this.cache.clear(); this.stageCache.clear(); this.stageSig = ''; }
 
   /* 元フレームの寸法 */
@@ -125,14 +143,22 @@ export class Compositor {
     return c;
   }
 
-  /* 設定が同じ間だけ、組み上げた1枚を使い回すための鍵 */
+  /* 設定が同じ間だけ、組み上げた1枚を使い回すための鍵。
+     テープカウンターは再生位置(pos)ごとに変わるので、意図的にここへは含めない
+     （renderTo/renderFramed が buildStage とは別に、そのつど描き直す）。 */
   get signature() {
     const s = this.stamp;
+    const o = this.osd;
+    const titleKey = o.titleEnabled && o.titleText
+      ? [o.titleText, o.font, o.color, o.outline, o.outlineColor, o.outlineWidthPct, o.sizePct].join(',')
+      : '-';
+    const transportKey = o.transportEnabled ? o.transportLabel : '-';
     return [
       this.filterId === 'none' ? 'none' : this.paramsSignature(this.filterId),
       this.crt, this.crtStrength,
       this.aspectId, Math.round(this.offsetY * 1000),
       s.enabled ? s.text + s.color : '-',
+      titleKey, transportKey,
       this.doodle ? this.doodle.version : 0
     ].join('|');
   }
@@ -168,19 +194,33 @@ export class Compositor {
     // ブラウン管は毎コマ計算すると重いので、設定が変わるまで取っておく。
     // どちらの経路も、キャッシュに入れるのは必ずこの呼び出しで新しく作った canvas。
     const result = this.crt ? applyCRT(stage, this.crtStrength) : stage;
+
+    // タイトル文字とPLAY表示はコマ番号だけで決まる（再生位置に依存しない）ので、
+    // ここで焼き込んでキャッシュに含めてしまう。テープカウンターだけは再生位置ごとに
+    // 数字が変わるので、ここでは描かずに renderTo/renderFramed 側で毎回描く
+    const rctx = result.getContext('2d', { alpha: false });
+    if (this.osd.titleEnabled && this.osd.titleText) {
+      drawOSDTitle(rctx, Object.assign({}, this.osd, { text: this.osd.titleText, width: result.width, height: result.height }));
+    }
+    if (this.osd.transportEnabled) {
+      drawOSDTransport(rctx, { label: this.osd.transportLabel || 'PLAY', width: result.width, height: result.height });
+    }
+
     if (this.stageCache.size < 48) this.stageCache.set(index, result);
     return result;
   }
 
-  /* 作品をそのまま指定サイズへ */
-  renderTo(ctx, index, outW, outH) {
+  /* 作品をそのまま指定サイズへ。pos は往復列の中の再生位置（テープカウンター用）。
+     指定しなければ 0 として扱う（カウンター表示が無いときは影響しない）。 */
+  renderTo(ctx, index, pos, outW, outH) {
     const stage = this.buildStage(index);
     if (!stage) return;
     ctx.drawImage(stage, 0, 0, outW, outH);
+    if (this.osd.counterEnabled) drawOSDCounter(ctx, { value: pos, width: outW, height: outH });
   }
 
   /* SNS用の枠に、作品を切らずに収める */
-  renderFramed(ctx, index, boxW, boxH, background = 'blur') {
+  renderFramed(ctx, index, pos, boxW, boxH, background = 'blur') {
     const stage = this.buildStage(index);
     if (!stage) return;
     const fit = fitRect(stage.width, stage.height, boxW, boxH);
@@ -199,6 +239,7 @@ export class Compositor {
       ctx.fillRect(0, 0, boxW, boxH);
     }
     ctx.drawImage(stage, fit.x, fit.y, fit.width, fit.height);
+    if (this.osd.counterEnabled) drawOSDCounter(ctx, { value: pos, width: boxW, height: boxH });
   }
 
   /* 保存しておく編集内容 */
@@ -212,7 +253,8 @@ export class Compositor {
       crtStrength: this.crtStrength,
       aspectId: this.aspectId,
       offsetY: this.offsetY,
-      stamp: Object.assign({}, this.stamp)
+      stamp: Object.assign({}, this.stamp),
+      osd: Object.assign({}, this.osd)
     };
   }
 
@@ -227,6 +269,7 @@ export class Compositor {
     this.aspectId = s.aspectId || 'src';
     this.offsetY = typeof s.offsetY === 'number' ? s.offsetY : 0.5;
     if (s.stamp) this.stamp = Object.assign({ enabled: false, text: '', color: '#ff8a1f' }, s.stamp);
+    this.osd = Object.assign({}, DEFAULT_OSD, s.osd);
     this.invalidate();
   }
 }

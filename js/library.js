@@ -29,19 +29,34 @@ export function renderLibrary(container, items, { onOpen, onDelete, currentId })
     open.type = 'button';
     open.className = 'libItem__open';
     if (item.thumb) {
+      const thumbWrap = document.createElement('span');
+      thumbWrap.className = 'libItem__thumbWrap';
       const img = document.createElement('img');
       const url = URL.createObjectURL(item.thumb);
       img.src = url;
       img.dataset.url = url;
       img.alt = '';
-      open.append(img);
+      thumbWrap.append(img);
+      if (item.kind === 'video') {
+        const badge = document.createElement('span');
+        badge.className = 'libItem__badge';
+        badge.textContent = '▶';
+        badge.setAttribute('aria-hidden', 'true');
+        thumbWrap.append(badge);
+      }
+      open.append(thumbWrap);
     }
     const meta = document.createElement('span');
     meta.className = 'libItem__meta';
-    meta.innerHTML = '<b>' + fmtDate(item.createdAt) + '</b>' +
-      '<small>' + item.frameCount + 'コマ · ' + item.width + '×' + item.height +
-      (item.settings && item.settings.filterId && item.settings.filterId !== 'none' ? ' · ' + item.settings.filterId : '') +
-      '</small>';
+    meta.innerHTML = item.kind === 'video'
+      ? '<b>' + fmtDate(item.createdAt) + '</b>' +
+        '<small>動画 · ' + (item.durationSec ? item.durationSec.toFixed(1) + '秒' : '') +
+        (item.settings && item.settings.filterId && item.settings.filterId !== 'none' ? ' · ' + item.settings.filterId : '') +
+        '</small>'
+      : '<b>' + fmtDate(item.createdAt) + '</b>' +
+        '<small>' + item.frameCount + 'コマ · ' + item.width + '×' + item.height +
+        (item.settings && item.settings.filterId && item.settings.filterId !== 'none' ? ' · ' + item.settings.filterId : '') +
+        '</small>';
     open.append(meta);
     open.addEventListener('click', () => onOpen(item.id));
 

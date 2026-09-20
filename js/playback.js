@@ -27,7 +27,7 @@ export class LoopPlayer {
     const { width, height } = this.compositor.size;
     if (!width) return;
     this.resizeTo(width, height);
-    this.compositor.renderTo(this.ctx, index, width, height);
+    this.compositor.renderTo(this.ctx, index, this.pos, width, height);
     if (this.onPosChange) this.onPosChange(this.pos, index);
   }
 

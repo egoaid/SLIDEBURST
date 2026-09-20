@@ -3,8 +3,8 @@
 
 export const APP = {
   name: 'SLIDEBURST',
-  version: '0.5.1',
-  build: '20260919b',
+  version: '0.6.0',
+  build: '20260920a',
   url: 'https://egoaid.github.io/SLIDEBURST/'
 };
 
@@ -106,5 +106,10 @@ export const EXPORT_FORMATS = [
     id: 'gif',
     label: 'GIF',
     hint: 'どこでも勝手にループします。LINEやXに貼るならこれ。写真アプリには画像として保存されます。'
+  },
+  {
+    id: 'photo',
+    label: '静止画',
+    hint: 'いま表示しているコマ1枚を、フィルターやスタンプごと写真として保存します。'
   }
 ];

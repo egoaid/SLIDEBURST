@@ -8,10 +8,15 @@ export class Camera {
     this.stream = null;
     this.facing = 'environment';
     this.mode = 'fps';
+    this.withAudio = false;
   }
 
   get track() {
     return this.stream ? this.stream.getVideoTracks()[0] : null;
+  }
+
+  get audioTrack() {
+    return this.stream ? this.stream.getAudioTracks()[0] : null;
   }
 
   settings() {
@@ -24,13 +29,14 @@ export class Camera {
     return t ? (t.label || '名称なし') : '';
   }
 
-  async start({ facing = this.facing, mode = this.mode } = {}) {
+  async start({ facing = this.facing, mode = this.mode, audio = this.withAudio } = {}) {
     this.stop();
     this.facing = facing;
     this.mode = mode;
+    this.withAudio = audio;
 
     const constraints = {
-      audio: false,
+      audio: !!audio,
       video: Object.assign(
         { facingMode: facing === 'user' ? 'user' : { ideal: 'environment' } },
         STREAM_MODES[mode] || STREAM_MODES.fps
@@ -44,7 +50,7 @@ export class Camera {
       // 制約が厳しすぎて拒否された場合は最低限の条件で再試行する
       if (err && (err.name === 'OverconstrainedError' || err.name === 'NotFoundError')) {
         stream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
+          audio: !!audio,
           video: { facingMode: facing === 'user' ? 'user' : 'environment' }
         });
       } else {
@@ -84,16 +90,17 @@ export class Camera {
 }
 
 /* 権限エラーを日本語の対処法に変換する */
-export function describeCameraError(err) {
+export function describeCameraError(err, withAudio = false) {
   const name = err && err.name ? err.name : '';
+  const device = withAudio ? 'カメラとマイク' : 'カメラ';
   if (name === 'NotAllowedError' || name === 'SecurityError') {
-    return 'カメラの使用が許可されませんでした。ブラウザのサイト設定でカメラを許可してから、もう一度起動してください。';
+    return device + 'の使用が許可されませんでした。ブラウザのサイト設定で許可してから、もう一度起動してください。';
   }
   if (name === 'NotFoundError' || name === 'OverconstrainedError') {
-    return '使用できるカメラが見つかりませんでした。別のカメラに切り替えるか、ストリーム設定を変えて試してください。';
+    return '使用できる' + device + 'が見つかりませんでした。別のカメラに切り替えるか、ストリーム設定を変えて試してください。';
   }
   if (name === 'NotReadableError') {
-    return 'カメラを他のアプリが使用中です。他のカメラアプリを閉じてから、もう一度起動してください。';
+    return device + 'を他のアプリが使用中です。他のアプリを閉じてから、もう一度起動してください。';
   }
-  return 'カメラを起動できませんでした（' + (name || '不明なエラー') + '）。ページを再読み込みして試してください。';
+  return device + 'を起動できませんでした（' + (name || '不明なエラー') + '）。ページを再読み込みして試してください。';
 }

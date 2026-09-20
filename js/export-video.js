@@ -33,6 +33,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /**
  * 往復シーケンスを指定回数くり返して録画する。
  * @param {Object} o {render, sequence, fps, width, height, loops, onProgress}
+ *   render(ctx, index, pos, width, height) — pos は往復列の中の再生位置（テープカウンター用）
  * @returns {Promise<Blob>}
  */
 export async function encodeVideo({ render, sequence, fps, width, height, loops = 4, onProgress }) {
@@ -48,7 +49,7 @@ export async function encodeVideo({ render, sequence, fps, width, height, loops 
   document.body.append(canvas);
   const ctx = canvas.getContext('2d', { alpha: false });
 
-  render(ctx, sequence[0], width, height);
+  render(ctx, sequence[0], 0, width, height);
 
   const stream = canvas.captureStream(Math.max(30, fps * 2));
   const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 10000000 });
@@ -64,7 +65,7 @@ export async function encodeVideo({ render, sequence, fps, width, height, loops 
   try {
     for (let l = 0; l < loops; l++) {
       for (let i = 0; i < sequence.length; i++) {
-        render(ctx, sequence[i], width, height);
+        render(ctx, sequence[i], i, width, height);
         const track = stream.getVideoTracks()[0];
         if (track && typeof track.requestFrame === 'function') {
           try { track.requestFrame(); } catch (e) { /* fps指定のストリームでは無視されることがある */ }

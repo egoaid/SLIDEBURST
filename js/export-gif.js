@@ -188,6 +188,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /**
  * ループGIFを作る。
  * @param {Object} o {render, sequence, fps, width, height, onProgress}
+ *   render(ctx, index, pos, width, height) — pos は往復列の中の再生位置（テープカウンター用）
  * @returns {Promise<Blob>}
  */
 export async function encodeGIF({ render, sequence, fps, width, height, onProgress }) {
@@ -196,28 +197,29 @@ export async function encodeGIF({ render, sequence, fps, width, height, onProgre
   canvas.height = height;
   const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
 
-  // 同じコマが往復で二度出てくるので、描画は一意なコマだけにする
-  const unique = [...new Set(sequence)];
-  const buffers = new Map();
-  for (let i = 0; i < unique.length; i++) {
-    render(ctx, unique[i], width, height);
-    buffers.set(unique[i], ctx.getImageData(0, 0, width, height).data);
-    if (onProgress) onProgress(0.1 + (0.25 * (i + 1)) / unique.length, 'コマを準備中');
+  // テープカウンターなどpos依存の表示があり得るので、同じコマ番号でも位置ごとに描き直す
+  // （以前は同じコマ番号をまとめて1回だけ描いていたが、それだとpos依存の表示が焼けない）
+  const buffers = [];
+  for (let i = 0; i < sequence.length; i++) {
+    render(ctx, sequence[i], i, width, height);
+    buffers.push(ctx.getImageData(0, 0, width, height).data);
+    if (onProgress) onProgress(0.1 + (0.25 * (i + 1)) / sequence.length, 'コマを準備中');
     await sleep(0);
   }
 
-  const palette = buildPalette([...buffers.values()]);
+  const palette = buildPalette(buffers);
   const map = makeMapper(palette);
   if (onProgress) onProgress(0.45, '色を整理中');
   await sleep(0);
 
-  const indexed = new Map();
-  for (const [key, data] of buffers) {
+  const indexed = [];
+  for (let i = 0; i < buffers.length; i++) {
+    const data = buffers[i];
     const px = new Uint8Array(width * height);
     for (let p = 0; p < px.length; p++) {
       px[p] = map(data[p * 4], data[p * 4 + 1], data[p * 4 + 2]);
     }
-    indexed.set(key, px);
+    indexed.push(px);
     await sleep(0);
   }
   if (onProgress) onProgress(0.6, '書き出し中');
@@ -250,7 +252,7 @@ export async function encodeGIF({ render, sequence, fps, width, height, onProgre
     w.short(width); w.short(height);
     w.byte(0);
     w.byte(8);
-    writeSubBlocks(w, lzwEncode(indexed.get(sequence[i]), 8));
+    writeSubBlocks(w, lzwEncode(indexed[i], 8));
     if (onProgress) onProgress(0.6 + (0.4 * (i + 1)) / sequence.length, '書き出し中');
     await sleep(0);
   }

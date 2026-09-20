@@ -15,7 +15,9 @@ import { FrameStore, makeThumbnail } from './frames.js';
 import { Compositor } from './compose.js';
 import { ASPECTS, ratioOf, hasVerticalRoom } from './crop.js';
 import { Doodle } from './doodle.js';
-import { FILTERS, PARAM_SCHEMAS, CINEMA_VARIANTS } from './filters.js';
+import { FILTERS, PARAM_SCHEMAS, CINEMA_VARIANTS, getDefaultParams } from './filters.js';
+import { OSD_FONTS } from './osd.js';
+import { VideoRecorder, videoRecordSupported } from './video-record.js';
 import { defaultStampText } from './datestamp.js';
 import { LoopPlayer } from './playback.js';
 import { analyze, renderMetrics, verdict, toText } from './metrics.js';
@@ -47,7 +49,13 @@ const store = new FrameStore();
 const doodle = new Doodle();
 const compositor = new Compositor(store, doodle);
 const player = new LoopPlayer($('loopCanvas'), store, compositor);
+const videoRecorder = new VideoRecorder();
 let floatingPreview = null;
+
+const CAPTURE_MODES = [
+  { id: 'burst', label: 'バースト立体撮影' },
+  { id: 'video', label: 'ふつうの動画' }
+];
 
 const state = {
   durationMs: DEFAULT_DURATION_MS,
@@ -69,7 +77,13 @@ const state = {
   captureId: null,
   saveTimer: null,
   timerMs: 0,
-  countdownCancelled: false
+  countdownCancelled: false,
+  captureMode: 'burst',
+  videoFilterId: 'none',
+  videoIntensity: 100,
+  videoCinemaVariant: 'technicolor',
+  lastVideoBlob: null,
+  lastVideoName: ''
 };
 
 /* ---------- 環境表示 ---------- */
@@ -88,6 +102,13 @@ function showEnvironment() {
 
 function setupCameraControls() {
   buildChips(
+    $('captureModeChips'),
+    CAPTURE_MODES.map((m) => ({ value: m.id, label: m.label })),
+    'burst',
+    setCaptureMode
+  );
+
+  buildChips(
     $('durationChips'),
     DURATIONS.map((d) => ({ value: d.ms, label: d.label, hint: d.hint })),
     DEFAULT_DURATION_MS,
@@ -98,6 +119,26 @@ function setupCameraControls() {
     }
   );
   $('shutterText').textContent = (DEFAULT_DURATION_MS / 1000).toFixed(2) + 's';
+
+  buildChips(
+    $('videoFilterChips'),
+    FILTERS.map((f) => ({ value: f.id, label: f.label })),
+    'none',
+    (id) => {
+      state.videoFilterId = id;
+      $('videoCinemaVariantField').hidden = id !== 'cinema';
+    }
+  );
+  buildChips(
+    $('videoCinemaVariantChips'),
+    CINEMA_VARIANTS.map((v) => ({ value: v.id, label: v.label })),
+    'technicolor',
+    (id) => { state.videoCinemaVariant = id; }
+  );
+  $('videoIntensityRange').addEventListener('input', (e) => {
+    state.videoIntensity = Number(e.target.value);
+    $('videoIntensityOut').textContent = e.target.value;
+  });
 
   buildChips(
     $('guideChips'),
@@ -120,20 +161,74 @@ function setupCameraControls() {
 
   $('modeSelect').addEventListener('change', async (e) => {
     state.streamMode = e.target.value;
-    if (!camera.stream) return;
+    if (!camera.stream || videoRecorder.recording) return;
     try {
-      const s = await camera.start({ mode: state.streamMode });
+      const s = await camera.start({ mode: state.streamMode, audio: state.captureMode === 'video' });
       pool.items = [];
       setStatus('ストリームを ' + s.width + '×' + s.height + ' / ' + Math.round(s.frameRate || 0) + 'fps に切り替えました。');
     } catch (err) {
-      setStatus(describeCameraError(err), true);
+      setStatus(describeCameraError(err, state.captureMode === 'video'), true);
     }
   });
 
   $('startCamera').addEventListener('click', startCamera);
   $('flipCamera').addEventListener('click', flipCamera);
-  $('shutter').addEventListener('click', shoot);
-  $('toResult').addEventListener('click', () => { if (store.count) goView('result'); });
+  $('shutter').addEventListener('click', onShutter);
+  $('toResult').addEventListener('click', () => {
+    if (store.count) {
+      goView('result');
+    } else {
+      // 撮影前・作品を開く前でも、作品一覧だけは常に見られるようにする
+      goView('result');
+      showTab($('tabs'), 'lib');
+      setDrawing(false);
+      refreshLibrary();
+    }
+  });
+
+  $('videoShareBtn').addEventListener('click', async () => {
+    if (!state.lastVideoBlob) return;
+    const result = await shareFile(state.lastVideoBlob, state.lastVideoName);
+    if (result === 'unsupported') {
+      setStatus('このブラウザでは共有シートを開けません。下のダウンロードから保存してください。');
+    } else if (result === 'shared') {
+      setStatus('共有シートに渡しました。');
+    }
+  });
+  $('videoToLibraryBtn').addEventListener('click', () => {
+    goView('result');
+    showTab($('tabs'), 'lib');
+    setDrawing(false);
+    refreshLibrary();
+  });
+}
+
+/* 撮影モードの切り替え。バースト立体撮影とふつうの動画は、必要な画面部品が異なる */
+function setCaptureMode(mode) {
+  if (state.busy || videoRecorder.recording) return;
+  state.captureMode = mode;
+  $('durationField').hidden = mode === 'video';
+  $('videoFilterField').hidden = mode !== 'video';
+  $('videoResult').hidden = true;
+
+  if (mode === 'video' && !videoRecordSupported()) {
+    setStatus('このブラウザは音声付き動画の録画に対応していません。', true);
+  }
+
+  if (camera.stream) {
+    camera.start({ mode: state.streamMode, audio: mode === 'video' }).catch((err) => {
+      setStatus(describeCameraError(err, mode === 'video'), true);
+    });
+  }
+
+  setStatus(mode === 'video'
+    ? 'ふつうの動画モードです。フィルターを選んでからシャッターで録画を開始・停止します。'
+    : '撮影時間を選んで、シャッターと同時にカメラを横へ滑らせてください。');
+}
+
+function onShutter() {
+  if (state.captureMode === 'video') toggleVideoRecording();
+  else shoot();
 }
 
 /* プレビューに重ねる構図ガイド。撮影する範囲そのものは変わらない。
@@ -181,14 +276,15 @@ async function startCamera() {
   }
   $('blockerText').textContent = 'カメラの使用を許可してください…';
   try {
-    const s = await camera.start({ mode: state.streamMode });
+    const s = await camera.start({ mode: state.streamMode, audio: state.captureMode === 'video' });
     $('blocker').hidden = true;
     $('shutter').disabled = false;
     updateFacingLabel();
     setStatus('準備できました（' + s.width + '×' + s.height + ' / ' + Math.round(s.frameRate || 0) + 'fps）。');
   } catch (err) {
-    $('blockerText').textContent = describeCameraError(err);
-    setStatus(describeCameraError(err), true);
+    const msg = describeCameraError(err, state.captureMode === 'video');
+    $('blockerText').textContent = msg;
+    setStatus(msg, true);
   }
 }
 
@@ -204,7 +300,7 @@ async function flipCamera() {
     updateFacingLabel();
     setStatus((camera.facing === 'user' ? 'インカメラ' : 'アウトカメラ') + 'に切り替えました。');
   } catch (err) {
-    setStatus(describeCameraError(err), true);
+    setStatus(describeCameraError(err, state.captureMode === 'video'), true);
   }
 }
 
@@ -280,6 +376,200 @@ async function shoot() {
   }
 }
 
+/* ---------- ふつうの動画（音声付き・ループではない通常撮影） ---------- */
+
+function formatRecTime(ms) {
+  const s = Math.floor(ms / 1000);
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+
+let activeRecordingMeta = null;
+
+async function toggleVideoRecording() {
+  if (videoRecorder.recording) {
+    await stopVideoRecording();
+    return;
+  }
+  if (state.busy || !camera.stream) return;
+  if (!videoRecordSupported()) {
+    setStatus('このブラウザは音声付き動画の録画に対応していません。', true);
+    return;
+  }
+
+  if (state.timerMs > 0) {
+    state.busy = true;
+    setStatus('セルフタイマー作動中…');
+    const done = await runCountdown(state.timerMs);
+    state.busy = false;
+    if (!done) {
+      setStatus('セルフタイマーをキャンセルしました。');
+      return;
+    }
+  }
+
+  if (state.busy || !camera.stream) return;
+
+  const settings = camera.settings();
+  const width = Math.round(settings.width || video.videoWidth || 720);
+  const height = Math.round(settings.height || video.videoHeight || 1280);
+  const filterId = state.videoFilterId;
+  const filterParams = getDefaultParams(
+    filterId, state.videoIntensity,
+    filterId === 'cinema' ? { variant: state.videoCinemaVariant } : {}
+  );
+  // 録画中にフィルターの選択が変わっても、この録画自体には反映されない
+  // （録り始めた時点の設定で最初から最後まで撮る）ので、開始時点の値を控えておく
+  activeRecordingMeta = { width, height, filterId, filterParams, intensity: state.videoIntensity };
+
+  $('videoResult').hidden = true;
+  $('shutter').classList.add('is-busy');
+  $('stage').classList.add('is-recording');
+  $('recIndicator').hidden = false;
+  $('recTime').textContent = '0:00';
+  setStatus('録画中…（音声も記録しています）');
+
+  const started = videoRecorder.start({
+    video, width, height,
+    mediaStream: camera.stream,
+    filterId, filterParams,
+    maxMs: 60000,
+    onTick: (elapsed) => { $('recTime').textContent = formatRecTime(elapsed); },
+    onAutoStop: (result) => {
+      $('shutter').classList.remove('is-busy');
+      $('stage').classList.remove('is-recording');
+      $('recIndicator').hidden = true;
+      finishVideoRecording(result, activeRecordingMeta);
+    }
+  });
+
+  if (!started) {
+    $('shutter').classList.remove('is-busy');
+    $('stage').classList.remove('is-recording');
+    $('recIndicator').hidden = true;
+    setStatus('録画を開始できませんでした。', true);
+    activeRecordingMeta = null;
+    return;
+  }
+  state.busy = true;
+}
+
+async function stopVideoRecording() {
+  setStatus('動画を仕上げています…');
+  const meta = activeRecordingMeta;
+  const result = await videoRecorder.stop();
+  $('shutter').classList.remove('is-busy');
+  $('stage').classList.remove('is-recording');
+  $('recIndicator').hidden = true;
+  await finishVideoRecording(result, meta);
+}
+
+async function finishVideoRecording(result, meta) {
+  state.busy = false;
+  activeRecordingMeta = null;
+  if (!result || !result.blob || !result.blob.size) {
+    setStatus('録画に失敗しました。', true);
+    return;
+  }
+  setStatus('動画を保存しています…');
+  const id = await persistNewVideoCapture(result, meta || {});
+  const ext = result.mime && result.mime.indexOf('mp4') >= 0 ? 'mp4' : 'webm';
+  const name = timestampName(ext);
+  state.lastVideoBlob = result.blob;
+  state.lastVideoName = name;
+  attachDownload($('videoDownloadLink'), result.blob, name);
+  $('videoResultNote').textContent = id
+    ? '動画を保存しました（約 ' + (result.durationMs / 1000).toFixed(1) + ' 秒）。'
+    : '動画はできましたが、端末への保存には失敗しました。ダウンロードだけはできます。';
+  $('videoResult').hidden = false;
+  setStatus(id ? '動画を保存しました。' : '動画の保存に失敗しました。ダウンロードはできます。', !id);
+}
+
+async function persistNewVideoCapture(result, meta) {
+  if (!storageAvailable()) return null;
+  const id = newCaptureId();
+  try {
+    let thumb = null;
+    try {
+      thumb = await canvasToBlob(makeThumbnail(videoRecorder.out, 240), 'image/jpeg', 0.8);
+    } catch (e) { /* サムネイルが作れなくても保存は続ける */ }
+    await saveCapture({
+      id,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      kind: 'video',
+      width: meta.width,
+      height: meta.height,
+      durationSec: result.durationMs / 1000,
+      mime: result.mime,
+      settings: {
+        filterId: meta.filterId || 'none',
+        cinemaVariant: (meta.filterParams && meta.filterParams.variant) || 'technicolor',
+        intensity: typeof meta.intensity === 'number' ? meta.intensity : 100
+      },
+      thumb
+    }, [result.blob]);
+    refreshLibrary();
+    return id;
+  } catch (e) {
+    return null;
+  }
+}
+
+/* 動画作品を開く。バースト作品と違い、撮影後の加工はできないのでそのまま再生・共有・削除のみ */
+async function openVideoCapture(id, record) {
+  try {
+    const blobs = await loadFrameBlobs(id);
+    if (!blobs.length) return;
+    const blob = blobs[0];
+    const url = URL.createObjectURL(blob);
+    const player_ = $('videoViewerPlayer');
+    if (player_.dataset.url) URL.revokeObjectURL(player_.dataset.url);
+    player_.src = url;
+    player_.dataset.url = url;
+
+    const f = record.settings && record.settings.filterId;
+    $('videoViewerMeta').textContent = fmtVideoDate(record.createdAt) + ' · ' +
+      (record.durationSec ? record.durationSec.toFixed(1) + '秒' : '') +
+      (f && f !== 'none' ? ' · ' + (FILTERS.find((x) => x.id === f) || {}).label : '');
+
+    const name = timestampName(record.mime && record.mime.indexOf('mp4') >= 0 ? 'mp4' : 'webm');
+    attachDownload($('videoViewerDownload'), blob, name);
+
+    $('videoViewerShare').onclick = async () => {
+      const r = await shareFile(blob, name);
+      if (r === 'unsupported') setStatus('このブラウザでは共有シートを開けません。下のダウンロードから保存してください。');
+      else if (r === 'shared') setStatus('共有シートに渡しました。');
+    };
+    $('videoViewerDelete').onclick = async () => {
+      await removeCapture(id);
+      closeVideoViewer();
+    };
+    $('videoViewerBack').onclick = closeVideoViewer;
+
+    $('library').hidden = true;
+    $('videoViewer').hidden = false;
+  } catch (e) { /* 開けなくても一覧はそのまま */ }
+}
+
+function closeVideoViewer() {
+  const player_ = $('videoViewerPlayer');
+  player_.pause();
+  $('videoViewer').hidden = true;
+  $('library').hidden = false;
+}
+
+function fmtVideoDate(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return d.getFullYear() + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + String(d.getDate()).padStart(2, '0') +
+    ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+/* 「結果」アイコンのラベル。今の作品があるかどうかで表示を変える */
+function updateToResultLabel() {
+  $('toResultText').textContent = store.count ? '結果' : '作品';
+}
+
 function handleResult(result) {
   if (!result.frames.length) {
     setStatus('フレームを1枚も取得できませんでした。撮影時間を長くして試してください。', true);
@@ -299,11 +589,12 @@ function handleResult(result) {
   doodle.clear();
   doodle.setSize(result.width, result.height);
   compositor.setStamp({ text: defaultStampText() });
+  compositor.resetOSD();
   $('stampText').value = compositor.stamp.text;
   syncUIFromCompositor();
   resetExportResult();
 
-  $('toResult').disabled = false;
+  updateToResultLabel();
   setStatus(result.frames.length + ' 枚 / 実測 ' + Math.round(state.metrics.measuredFps) + 'fps。');
 
   renderResult();
@@ -521,6 +812,84 @@ function setupLookControls() {
   $('stampText').value = defaultStampText();
   compositor.setStamp({ text: $('stampText').value });
 
+  /* VHS風の文字（タイトル・PLAY表示・テープカウンター） */
+  buildChips(
+    $('osdFontChips'),
+    OSD_FONTS.map((f) => ({ value: f.id, label: f.label })),
+    'gothic',
+    (id) => {
+      compositor.setOSD({ font: id });
+      player.refresh();
+      resetExportResult();
+      scheduleSave();
+    }
+  );
+
+  buildSwatches($('osdColorChips'), PEN_COLORS, PEN_COLORS[0], (color) => {
+    compositor.setOSD({ color });
+    player.refresh();
+    resetExportResult();
+    scheduleSave();
+  });
+
+  buildSwatches($('osdOutlineColorChips'), PEN_COLORS, PEN_COLORS[6], (color) => {
+    compositor.setOSD({ outlineColor: color });
+    player.refresh();
+    resetExportResult();
+    scheduleSave();
+  });
+
+  $('osdTitleToggle').addEventListener('change', (e) => {
+    compositor.setOSD({ titleEnabled: e.target.checked });
+    player.refresh();
+    resetExportResult();
+    scheduleSave();
+  });
+
+  $('osdTitleText').addEventListener('input', (e) => {
+    compositor.setOSD({ titleText: e.target.value });
+    player.refresh();
+    resetExportResult();
+    scheduleSave();
+  });
+
+  $('osdSizeRange').addEventListener('input', (e) => {
+    $('osdSizeOut').textContent = e.target.value;
+    compositor.setOSD({ sizePct: Number(e.target.value) });
+    player.refresh();
+    resetExportResult();
+    scheduleSave();
+  });
+
+  $('osdOutlineToggle').addEventListener('change', (e) => {
+    compositor.setOSD({ outline: e.target.checked });
+    player.refresh();
+    resetExportResult();
+    scheduleSave();
+  });
+
+  $('osdOutlineWidthRange').addEventListener('input', (e) => {
+    $('osdOutlineWidthOut').textContent = e.target.value;
+    compositor.setOSD({ outlineWidthPct: Number(e.target.value) });
+    player.refresh();
+    resetExportResult();
+    scheduleSave();
+  });
+
+  $('osdTransportToggle').addEventListener('change', (e) => {
+    compositor.setOSD({ transportEnabled: e.target.checked });
+    player.refresh();
+    resetExportResult();
+    scheduleSave();
+  });
+
+  $('osdCounterToggle').addEventListener('change', (e) => {
+    compositor.setOSD({ counterEnabled: e.target.checked });
+    player.refresh();
+    resetExportResult();
+    scheduleSave();
+  });
+
   syncFilterDependentUI();
 }
 
@@ -571,6 +940,21 @@ function syncUIFromCompositor() {
   $('offsetOut').textContent = compositor.offsetY < 0.34 ? '上より' : compositor.offsetY > 0.66 ? '下より' : '中央';
   $('stampToggle').checked = compositor.stamp.enabled;
   $('stampText').value = compositor.stamp.text || '';
+
+  const osd = compositor.osd;
+  selectChip($('osdFontChips'), osd.font);
+  selectChip($('osdColorChips'), osd.color);
+  selectChip($('osdOutlineColorChips'), osd.outlineColor);
+  $('osdTitleToggle').checked = osd.titleEnabled;
+  $('osdTitleText').value = osd.titleText || '';
+  $('osdSizeRange').value = String(osd.sizePct);
+  $('osdSizeOut').textContent = String(osd.sizePct);
+  $('osdOutlineToggle').checked = osd.outline;
+  $('osdOutlineWidthRange').value = String(osd.outlineWidthPct);
+  $('osdOutlineWidthOut').textContent = String(osd.outlineWidthPct);
+  $('osdTransportToggle').checked = osd.transportEnabled;
+  $('osdCounterToggle').checked = osd.counterEnabled;
+
   updateOffsetAvailability();
   syncFilterDependentUI();
 }
@@ -723,7 +1107,7 @@ function updateFormatHint() {
     hint = 'このブラウザでは動画を書き出せません。GIFを選んでください。';
   }
   $('formatHint').textContent = hint;
-  $('durationExportChips').classList.toggle('is-disabled', state.format === 'gif');
+  $('durationExportChips').classList.toggle('is-disabled', state.format === 'gif' || state.format === 'photo');
 }
 
 /* 作品は短いまま、書き出しでくり返す */
@@ -736,6 +1120,10 @@ function loopCount() {
 function updateLoopInfo() {
   if (!store.sequence.length) {
     $('loopInfo').textContent = '';
+    return;
+  }
+  if (state.format === 'photo') {
+    $('loopInfo').textContent = 'いま画面に出ているコマ1枚を保存します（動く作品はそのまま残ります）。';
     return;
   }
   const loopMs = (store.sequence.length / (player.fps || 10)) * 1000;
@@ -775,8 +1163,8 @@ function exportBox() {
 }
 
 function makeRenderer(framed) {
-  if (!framed) return (ctx, index, w, h) => compositor.renderTo(ctx, index, w, h);
-  return (ctx, index, w, h) => compositor.renderFramed(ctx, index, w, h, state.background);
+  if (!framed) return (ctx, index, pos, w, h) => compositor.renderTo(ctx, index, pos, w, h);
+  return (ctx, index, pos, w, h) => compositor.renderFramed(ctx, index, pos, w, h, state.background);
 }
 
 async function runExport() {
@@ -793,7 +1181,18 @@ async function runExport() {
 
   try {
     let blob, name;
-    if (state.format === 'gif') {
+    if (state.format === 'photo') {
+      setExportStatus('静止画を作っています…', 0.3);
+      const canvas = document.createElement('canvas');
+      canvas.width = box.width;
+      canvas.height = box.height;
+      const ctx = canvas.getContext('2d', { alpha: false });
+      const index = store.sourceIndexAt(player.pos);
+      render(ctx, index, player.pos, box.width, box.height);
+      blob = await canvasToBlob(canvas, 'image/jpeg', 0.92);
+      if (!blob) throw new Error('静止画の書き出しに失敗しました。');
+      name = timestampName('jpg');
+    } else if (state.format === 'gif') {
       setExportStatus('GIFを作っています…', 0.05);
       blob = await encodeGIF({
         render, sequence: store.sequence, fps,
@@ -871,6 +1270,7 @@ async function persistNewCapture(result) {
       id,
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      kind: 'burst',
       width: result.width,
       height: result.height,
       frameCount: result.frames.length,
@@ -886,6 +1286,10 @@ async function persistNewCapture(result) {
 }
 
 async function refreshLibrary() {
+  if ($('videoViewer') && !$('videoViewer').hidden) {
+    $('videoViewer').hidden = true;
+    $('library').hidden = false;
+  }
   if (!storageAvailable()) {
     $('libNote').textContent = 'このブラウザでは作品を保存できません。';
     return;
@@ -912,8 +1316,16 @@ async function refreshLibrary() {
 async function openCapture(id) {
   try {
     const record = await getCapture(id);
+    if (!record) return;
+    if (record.kind === 'video') {
+      goView('result');
+      showTab($('tabs'), 'lib');
+      setDrawing(false);
+      await openVideoCapture(id, record);
+      return;
+    }
     const blobs = await loadFrameBlobs(id);
-    if (!record || !blobs.length) return;
+    if (!blobs.length) return;
 
     const canvases = [];
     for (const b of blobs) canvases.push(await blobToCanvas(b));
@@ -967,7 +1379,7 @@ async function openCapture(id) {
     goView('result');
     showTab($('tabs'), 'play');
     setDrawing(false);
-    $('toResult').disabled = false;
+    updateToResultLabel();
     refreshLibrary();
   } catch (e) {
     $('libNote').textContent = 'この作品を開けませんでした。';
@@ -1009,6 +1421,7 @@ floatingPreview = new FloatingPreview({
 });
 
 selectChip($('frameModeChips'), DEFAULT_FRAME_MODE);
+updateToResultLabel();
 goView('camera');
 refreshLibrary();
 
