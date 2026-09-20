@@ -29,9 +29,20 @@ export function videoExtensionFor(mime) {
   return mime && mime.indexOf('mp4') >= 0 ? 'mp4' : 'webm';
 }
 
-/* 録画のビットレート。720p前後の実用画質で、1分あたり約45MB */
-export const RECORD_VIDEO_BPS = 6000000;
+/* 録画のビットレートは、実際に取れた映像の大きさとコマ数から決める。
+   以前は6Mbps固定で、1080pや高コマ数のとき圧縮が足りず、ブロックノイズが出ていた。
+   画素数×コマ数×0.14bit を目安に、5〜20Mbpsの範囲に収める（上限は長時間録画でメモリを食いつぶさないため） */
 export const RECORD_AUDIO_BPS = 128000;
+const BITS_PER_PIXEL = 0.14;
+
+export function recordBitrate(stream) {
+  const t = stream && stream.getVideoTracks()[0];
+  const st = t && t.getSettings ? t.getSettings() : {};
+  const w = st.width || 1280;
+  const h = st.height || 720;
+  const fps = Math.min(st.frameRate || 30, 60);
+  return Math.round(Math.min(20000000, Math.max(5000000, w * h * fps * BITS_PER_PIXEL)));
+}
 
 /* 空き容量がこれを下回りそうになったら、データを失う前に自動で止める */
 const MIN_FREE_BYTES = 150 * 1024 * 1024;
@@ -56,30 +67,45 @@ export class VideoRecorder {
     this.timer = null;
     this._stopped = null;
     this._checking = false;
+    this.ownedTracks = [];
+    this._audioTracks = [];
+    this.audioIssue = false;   // 録画中にマイクが止まった（iOSの音声セッション競合など）とき true
+    this.bitrate = 0;
   }
 
   /**
    * 録画を開始する。
    * @param {Object} o
-   * @param {MediaStream} o.stream カメラ（と、あればマイク）のストリーム
+   * @param {MediaStream} o.stream 映像（と、あればマイクの音声）のストリーム
+   * @param {MediaStreamTrack[]} [o.ownedTracks] 録画が終わったら止めるトラック（録画のために取り直したマイク）
    * @param {(elapsedMs:number, bytes:number)=>void} [o.onTick] 経過時間と、ここまでの大きさの通知
    * @param {(result:{blob:Blob,durationMs:number,mime:string}|null, reason:string)=>void} [o.onAutoStop]
    *   空き容量が足りなくなって自動停止したときに呼ばれる（stop() を呼んだ場合は呼ばれない）
    */
-  start({ stream, onTick, onAutoStop }) {
+  start({ stream, ownedTracks = [], onTick, onAutoStop }) {
     if (this.recording || !stream) return false;
     if (!videoRecordSupported()) return false;
 
     const mime = pickVideoMimeType();
     this.chunks = [];
     this.bytes = 0;
+    this.ownedTracks = ownedTracks;
+    this.audioIssue = false;
+    this.bitrate = recordBitrate(stream);
     try {
       this.mediaRecorder = new MediaRecorder(stream, Object.assign(
-        { videoBitsPerSecond: RECORD_VIDEO_BPS, audioBitsPerSecond: RECORD_AUDIO_BPS },
+        { videoBitsPerSecond: this.bitrate, audioBitsPerSecond: RECORD_AUDIO_BPS },
         mime ? { mimeType: mime } : {}
       ));
     } catch (e) {
+      this._releaseTracks();
       return false;
+    }
+    // マイクが途中で止まったら覚えておく（録画後に知らせる）
+    this._audioTracks = stream.getAudioTracks();
+    for (const t of this._audioTracks) {
+      t.addEventListener('mute', () => { this.audioIssue = true; });
+      t.addEventListener('ended', () => { this.audioIssue = true; });
     }
     this.mediaRecorder.ondataavailable = (e) => {
       if (e.data && e.data.size) {
@@ -98,6 +124,14 @@ export class VideoRecorder {
       if (onTick) onTick(performance.now() - this.startedAt, this.bytes);
     }, 250);
     return true;
+  }
+
+  /* 録画のために取り直したマイクを手放す。iOSでは、録画後に加工画面で音を再生するときの邪魔になる */
+  _releaseTracks() {
+    for (const t of this.ownedTracks) {
+      try { t.stop(); } catch (e) { /* 既に止まっている */ }
+    }
+    this.ownedTracks = [];
   }
 
   /* 空き容量の見張り。録画済みのぶんは保存にも同じだけ要るので、その2倍で見積もる */
@@ -125,11 +159,14 @@ export class VideoRecorder {
     clearInterval(this.timer);
     this.timer = null;
     const durationMs = performance.now() - this.startedAt;
+    // 止める時点でマイクが無音状態（mute）のままなら、録音できていない
+    if (this._audioTracks.some((t) => t.muted || t.readyState === 'ended')) this.audioIssue = true;
     if (this.mediaRecorder.state !== 'inactive') this.mediaRecorder.stop();
     await this._stopped;
+    this._releaseTracks();
     const mime = this.mediaRecorder.mimeType || pickVideoMimeType() || 'video/webm';
     const blob = new Blob(this.chunks, { type: mime });
     this.chunks = [];
-    return { blob, durationMs, mime };
+    return { blob, durationMs, mime, audioIssue: this.audioIssue };
   }
 }

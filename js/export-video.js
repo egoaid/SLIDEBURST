@@ -113,8 +113,8 @@ export async function encodeVideoWork({ video, render, width, height, audioTrack
 
   const stream = canvas.captureStream(30);
   if (audioTrack) stream.addTrack(audioTrack);
-  // 画素数に応じたビットレート（大きい動画でメモリを食いつぶさないよう上限あり）
-  const bps = Math.round(Math.min(10000000, Math.max(1500000, width * height * 30 * 0.22)));
+  // 画素数に応じたビットレート。フィルターの粒子やノイズは圧縮しにくく、低いとブロックノイズになるので多めに取る（上限はメモリのため）
+  const bps = Math.round(Math.min(16000000, Math.max(3000000, width * height * 30 * 0.45)));
   const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: bps, audioBitsPerSecond: 128000 });
   const chunks = [];
   recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
@@ -127,11 +127,13 @@ export async function encodeVideoWork({ video, render, width, height, audioTrack
 
   try {
     video.loop = false;
-    video.currentTime = 0;
-    await new Promise((resolve) => {
-      const t = setTimeout(resolve, 2000);
-      video.addEventListener('seeked', () => { clearTimeout(t); resolve(); }, { once: true });
-    });
+    if (video.currentTime !== 0) {
+      video.currentTime = 0;
+      await new Promise((resolve) => {
+        const t = setTimeout(resolve, 2000);
+        video.addEventListener('seeked', () => { clearTimeout(t); resolve(); }, { once: true });
+      });
+    }
     render(ctx, video.currentTime, width, height);
 
     recorder.start(3000);

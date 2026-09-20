@@ -21,6 +21,38 @@ function once(el, name, ms) {
   });
 }
 
+/* <video> に Blob をつなぐ。ユーザー操作の中で同期的に呼べるよう、待たずに URL だけ返す */
+export function attachBlob(v, blob) {
+  v.loop = true;
+  v.playsInline = true;
+  v.preload = 'auto';
+  const url = URL.createObjectURL(blob);
+  v.src = url;
+  return url;
+}
+
+/* attachBlob のあと、メタデータを待ち、長さを確定させる。読み込めなければ例外 */
+export async function settleVideoElement(v, durationHint = 0) {
+  const meta = once(v, 'loadedmetadata', 15000);
+  const failed = once(v, 'error', 15000);
+  const ok = v.readyState >= 1 ? 'ok' : await Promise.race([
+    meta.then((r) => (r ? 'ok' : 'timeout')),
+    failed.then((r) => (r ? 'error' : 'timeout'))
+  ]);
+  if (ok !== 'ok' || !v.videoWidth) throw new Error('動画を読み込めませんでした。');
+
+  // MediaRecorder が作った webm は長さが不明(Infinity)なことがある。終端まで飛ばして長さを確定させる
+  if (!isFinite(v.duration)) {
+    v.currentTime = 1e101;
+    await once(v, 'timeupdate', 3000);
+    v.currentTime = 0;
+    await once(v, 'seeked', 3000);
+  }
+  const duration = isFinite(v.duration) && v.duration > 0 ? v.duration : durationHint;
+  if (v.readyState < 2) await once(v, 'loadeddata', 5000);
+  return { width: v.videoWidth, height: v.videoHeight, duration };
+}
+
 export class VideoPlayer {
   constructor(canvas, videoEl, compositor) {
     this.canvas = canvas;
@@ -48,33 +80,18 @@ export class VideoPlayer {
   async load(blob, durationHint = 0) {
     this.unload();
     const v = this.video;
-    this.url = URL.createObjectURL(blob);
-    v.loop = true;
     v.muted = true;
-    v.playsInline = true;
-    v.preload = 'auto';
-
-    const meta = once(v, 'loadedmetadata', 15000);
-    const failed = once(v, 'error', 15000);
-    v.src = this.url;
-    const ok = await Promise.race([meta.then((r) => (r ? 'ok' : 'timeout')), failed.then((r) => (r ? 'error' : 'timeout'))]);
-    if (ok !== 'ok' || !v.videoWidth) {
+    this.url = attachBlob(v, blob);
+    let info;
+    try {
+      info = await settleVideoElement(v, durationHint);
+    } catch (e) {
       this.unload();
-      throw new Error('動画を読み込めませんでした。');
+      throw e;
     }
-
-    // MediaRecorder が作った webm は長さが不明(Infinity)なことがある。終端まで飛ばして長さを確定させる
-    if (!isFinite(v.duration)) {
-      v.currentTime = 1e101;
-      await once(v, 'timeupdate', 3000);
-      v.currentTime = 0;
-      await once(v, 'seeked', 3000);
-    }
-    this.duration = isFinite(v.duration) && v.duration > 0 ? v.duration : durationHint;
-
-    if (v.readyState < 2) await once(v, 'loadeddata', 5000);
+    this.duration = info.duration;
     this.active = true;
-    return { width: v.videoWidth, height: v.videoHeight, duration: this.duration };
+    return info;
   }
 
   unload() {

@@ -1,41 +1,47 @@
 /* audio-tap.js — 動画の書き出しで、元動画の音声を新しい動画へ写し取る。
-   <video> の音を Web Audio で受けて、MediaStream の音声トラックとして取り出す。
-   書き出し中に音がスピーカーから鳴り続けないよう、聞こえる側（モニター）だけを消せるようにしてある。
-   createMediaElementSource は1つの <video> に1回しか使えず、いちど使うと音は必ずこの経路を通る。
-   だから通常の再生でも、モニターをオンに戻しておくこと。 */
+   書き出し専用の <video>（書き出しのたびに作って捨てる）の音を Web Audio で受け、
+   MediaStream の音声トラックとして取り出す。スピーカー(destination)へはつながないので、
+   書き出し中に音は鳴らない。終わったら close() で音声コンテキストごと手放す。
+
+   加工画面のプレビュー用 <video> には使わない。createMediaElementSource は1つの要素に1回しか使えず、
+   使うと以後その要素の音が必ずこの経路を通ってしまい、iOSでは音声コンテキストが動いているだけで
+   マイク録音に悪さをすることがあるため（録画が無音になる不具合の原因の一つと考えられた）。 */
 
 export class AudioTap {
   constructor(video) {
     this.video = video;
     this.ctx = null;
-    this.monitor = null;
     this.dest = null;
+    this._resumed = null;
   }
 
   static supported() {
     return !!(window.AudioContext || window.webkitAudioContext);
   }
 
-  /* ユーザー操作の中で呼ぶこと（iOS は操作の外だと音声コンテキストを動かしてくれない） */
-  async prepare() {
-    if (!AudioTap.supported()) return this._elementCapture();
+  /* 必ず、ボタンを押した操作の中で、await より前に呼ぶこと（iOS は操作の外だと音声コンテキストを動かさない） */
+  setup() {
+    if (!AudioTap.supported()) return;
     try {
-      if (!this.ctx) {
-        const AC = window.AudioContext || window.webkitAudioContext;
-        this.ctx = new AC();
-        const src = this.ctx.createMediaElementSource(this.video);
-        this.monitor = this.ctx.createGain();
-        this.dest = this.ctx.createMediaStreamDestination();
-        src.connect(this.monitor);
-        this.monitor.connect(this.ctx.destination);
-        src.connect(this.dest);
-      }
-      if (this.ctx.state === 'suspended') await this.ctx.resume();
-      const tracks = this.dest.stream.getAudioTracks();
-      return tracks[0] || null;
+      const AC = window.AudioContext || window.webkitAudioContext;
+      this.ctx = new AC();
+      this._resumed = this.ctx.state === 'suspended' ? this.ctx.resume() : Promise.resolve();
+      const src = this.ctx.createMediaElementSource(this.video);
+      this.dest = this.ctx.createMediaStreamDestination();
+      src.connect(this.dest);
     } catch (e) {
-      return this._elementCapture();
+      this.close();
     }
+  }
+
+  /* 書き出しに足す音声トラック。取れなければ null（無音で書き出す） */
+  async prepare() {
+    if (this.ctx && this.dest) {
+      try { await this._resumed; } catch (e) { /* 動かなければトラックは無音になる */ }
+      const t = this.dest.stream.getAudioTracks()[0];
+      if (t) return t;
+    }
+    return this._elementCapture();
   }
 
   /* Web Audio が使えないときの代替（音がそのまま鳴ってしまうが、音声なしよりはよい） */
@@ -51,14 +57,11 @@ export class AudioTap {
     }
   }
 
-  setMonitor(on) {
-    if (this.monitor) this.monitor.gain.value = on ? 1 : 0;
-  }
-
-  /* 通常の再生の前に。中断されていたら動かし直す */
-  async resume() {
-    if (this.ctx && this.ctx.state === 'suspended') {
-      try { await this.ctx.resume(); } catch (e) { /* 次の操作でもう一度 */ }
+  close() {
+    if (this.ctx) {
+      try { this.ctx.close(); } catch (e) { /* 既に閉じている */ }
     }
+    this.ctx = null;
+    this.dest = null;
   }
 }

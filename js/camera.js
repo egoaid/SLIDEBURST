@@ -8,15 +8,10 @@ export class Camera {
     this.stream = null;
     this.facing = 'environment';
     this.mode = 'fps';
-    this.withAudio = false;
   }
 
   get track() {
     return this.stream ? this.stream.getVideoTracks()[0] : null;
-  }
-
-  get audioTrack() {
-    return this.stream ? this.stream.getAudioTracks()[0] : null;
   }
 
   settings() {
@@ -29,14 +24,16 @@ export class Camera {
     return t ? (t.label || '名称なし') : '';
   }
 
-  async start({ facing = this.facing, mode = this.mode, audio = this.withAudio } = {}) {
+  /* プレビュー用のストリームは映像だけ。マイクは録画の直前に main.js の acquireMic() で取り直す。
+     マイクを取りっぱなしにすると、加工画面での再生音などに iOS の音声セッションを奪われ、
+     次の録画が無音になることがあった。 */
+  async start({ facing = this.facing, mode = this.mode } = {}) {
     this.stop();
     this.facing = facing;
     this.mode = mode;
-    this.withAudio = audio;
 
     const constraints = {
-      audio: !!audio,
+      audio: false,
       video: Object.assign(
         { facingMode: facing === 'user' ? 'user' : { ideal: 'environment' } },
         STREAM_MODES[mode] || STREAM_MODES.fps
@@ -50,7 +47,7 @@ export class Camera {
       // 制約が厳しすぎて拒否された場合は最低限の条件で再試行する
       if (err && (err.name === 'OverconstrainedError' || err.name === 'NotFoundError')) {
         stream = await navigator.mediaDevices.getUserMedia({
-          audio: !!audio,
+          audio: false,
           video: { facingMode: facing === 'user' ? 'user' : 'environment' }
         });
       } else {
