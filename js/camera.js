@@ -1,6 +1,6 @@
 /* camera.js — getUserMedia とストリーム管理 */
 
-import { STREAM_MODES } from './config.js';
+import { STREAM_MODES, VIDEO_FRAME_RATE } from './config.js';
 
 export class Camera {
   constructor(videoEl) {
@@ -8,6 +8,9 @@ export class Camera {
     this.stream = null;
     this.facing = 'environment';
     this.mode = 'fps';
+    this.withAudio = false;
+    this.forVideo = false;
+    this.audioFailed = false;
   }
 
   get track() {
@@ -24,35 +27,48 @@ export class Camera {
     return t ? (t.label || '名称なし') : '';
   }
 
-  /* プレビュー用のストリームは映像だけ。マイクは録画の直前に main.js の acquireMic() で取り直す。
-     マイクを取りっぱなしにすると、加工画面での再生音などに iOS の音声セッションを奪われ、
-     次の録画が無音になることがあった。 */
-  async start({ facing = this.facing, mode = this.mode } = {}) {
+  /**
+   * カメラを起動する。
+   * audio: マイクも同じ getUserMedia で取る（映像と音声を別々に取ると、録画のなかで音と映像の開始位置がずれるおそれがあるため）。
+   * forVideo: 「ふつうの動画」用。コマ数を24fps（上限30）にする。バースト撮影は高速フレームが要るので触らない。
+   * マイクだけ拒否された場合は、映像だけで起動して audioFailed を立てる。
+   */
+  async start({ facing = this.facing, mode = this.mode, audio = false, forVideo = false } = {}) {
     this.stop();
     this.facing = facing;
     this.mode = mode;
+    this.withAudio = !!audio;
+    this.forVideo = !!forVideo;
+    this.audioFailed = false;
 
-    const constraints = {
-      audio: false,
-      video: Object.assign(
-        { facingMode: facing === 'user' ? 'user' : { ideal: 'environment' } },
-        STREAM_MODES[mode] || STREAM_MODES.fps
-      )
+    const base = Object.assign(
+      { facingMode: facing === 'user' ? 'user' : { ideal: 'environment' } },
+      STREAM_MODES[mode] || STREAM_MODES.fps,
+      forVideo ? { frameRate: VIDEO_FRAME_RATE } : {}
+    );
+    const minimal = { facingMode: facing === 'user' ? 'user' : 'environment' };
+
+    const attempt = async (withAudio) => {
+      try {
+        return await navigator.mediaDevices.getUserMedia({ audio: withAudio, video: base });
+      } catch (err) {
+        // 制約が厳しすぎて拒否された場合は最低限の条件で再試行する
+        if (err && (err.name === 'OverconstrainedError' || err.name === 'NotFoundError')) {
+          return navigator.mediaDevices.getUserMedia({ audio: withAudio, video: minimal });
+        }
+        throw err;
+      }
     };
 
     let stream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      stream = await attempt(!!audio);
     } catch (err) {
-      // 制約が厳しすぎて拒否された場合は最低限の条件で再試行する
-      if (err && (err.name === 'OverconstrainedError' || err.name === 'NotFoundError')) {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: { facingMode: facing === 'user' ? 'user' : 'environment' }
-        });
-      } else {
-        throw err;
-      }
+      if (!audio) throw err;
+      // マイクのせいで失敗したかもしれない。映像だけでもう一度（それも失敗するならカメラの問題なのでそのまま投げる）
+      stream = await attempt(false);
+      this.audioFailed = true;
+      this.withAudio = false;
     }
 
     this.stream = stream;
@@ -61,6 +77,22 @@ export class Camera {
     await this.video.play();
     await this.waitForSize();
     return this.settings();
+  }
+
+  /* マイクが使える状態か（トラックが生きていて、無音扱い(muted)になっていない） */
+  hasLiveAudio() {
+    const t = this.stream ? this.stream.getAudioTracks()[0] : null;
+    return !!t && t.readyState === 'live' && t.enabled && !t.muted;
+  }
+
+  /* マイクだけを手放す（映像はそのまま）。加工画面で音を再生するとき、iOSの音声セッションを奪い合わないように */
+  releaseAudio() {
+    if (!this.stream) return;
+    for (const t of this.stream.getAudioTracks()) {
+      t.stop();
+      this.stream.removeTrack(t);
+    }
+    this.withAudio = false;
   }
 
   waitForSize() {
@@ -74,7 +106,7 @@ export class Camera {
   }
 
   async flip() {
-    return this.start({ facing: this.facing === 'user' ? 'environment' : 'user' });
+    return this.start({ facing: this.facing === 'user' ? 'environment' : 'user', audio: this.withAudio, forVideo: this.forVideo });
   }
 
   stop() {

@@ -30,7 +30,7 @@ import { encodeVideo, encodeVideoWork, videoSupported, pickMimeType, extensionFo
 import { timestampName, shareFile, attachDownload } from './share.js';
 import {
   storageAvailable, newCaptureId, canvasToBlob, saveCapture, updateCapture,
-  listCaptures, getCapture, loadFrameBlobs, deleteCapture, blobToCanvas, estimateUsage
+  listCaptures, getCapture, loadFrameBlobs, deleteCapture, blobToCanvas, estimateUsage, frameBytes
 } from './storage.js';
 import { renderLibrary } from './library.js';
 import { FloatingPreview } from './pip.js';
@@ -52,6 +52,25 @@ function gotoTab(name) {
 function goView(name) {
   showView(name);
   if (floatingPreview) floatingPreview.refresh();
+  syncMicToView(name);
+}
+
+/* カメラの起動条件。「ふつうの動画」のときだけ、マイクと24fpsを使う */
+function cameraOptions() {
+  const isVideo = state.captureMode === 'video';
+  return { mode: state.streamMode, audio: isVideo, forVideo: isVideo };
+}
+
+/* マイクは、カメラ画面で「ふつうの動画」を撮るときだけ持つ。加工画面へ移るときに手放し
+   （加工画面で音を再生すると、iOSの音声セッションを奪い合って次の録画が無音になることがあった）、
+   カメラ画面へ戻ったら新しく取り直す */
+function syncMicToView(name) {
+  if (!camera.stream || videoRecorder.recording) return;
+  if (name === 'result') {
+    if (camera.withAudio) camera.releaseAudio();
+  } else if (name === 'camera' && state.captureMode === 'video' && !camera.hasLiveAudio() && !camera.audioFailed) {
+    camera.start(cameraOptions()).catch((err) => setStatus(describeCameraError(err, true), true));
+  }
 }
 
 const video = $('preview');
@@ -160,7 +179,7 @@ function setupCameraControls() {
     state.streamMode = e.target.value;
     if (!camera.stream || videoRecorder.recording) return;
     try {
-      const s = await camera.start({ mode: state.streamMode });
+      const s = await camera.start(cameraOptions());
       pool.items = [];
       setStatus('ストリームを ' + s.width + '×' + s.height + ' / ' + Math.round(s.frameRate || 0) + 'fps に切り替えました。');
     } catch (err) {
@@ -195,7 +214,9 @@ function setCaptureMode(mode) {
   }
 
   if (camera.stream) {
-    camera.start({ mode: state.streamMode }).then(() => { if (mode === 'video') checkMicPermission(); }).catch((err) => {
+    camera.start(cameraOptions()).then(() => {
+      if (mode === 'video' && camera.audioFailed) setStatus('マイクを使えません。このまま録画すると音声なしになります。ブラウザのサイト設定でマイクを許可してください。', true);
+    }).catch((err) => {
       setStatus(describeCameraError(err, mode === 'video'), true);
     });
   }
@@ -255,12 +276,14 @@ async function startCamera() {
   }
   $('blockerText').textContent = 'カメラの使用を許可してください…';
   try {
-    const s = await camera.start({ mode: state.streamMode });
+    const s = await camera.start(cameraOptions());
     $('blocker').hidden = true;
     $('shutter').disabled = false;
     updateFacingLabel();
     setStatus('準備できました（' + s.width + '×' + s.height + ' / ' + Math.round(s.frameRate || 0) + 'fps）。');
-    if (state.captureMode === 'video') checkMicPermission();
+    if (state.captureMode === 'video' && camera.audioFailed) {
+      setStatus('マイクを使えません。このまま録画すると音声なしになります。ブラウザのサイト設定でマイクを許可してください。', true);
+    }
   } catch (err) {
     const msg = describeCameraError(err, state.captureMode === 'video');
     $('blockerText').textContent = msg;
@@ -378,31 +401,18 @@ function endRecordingUI() {
   releaseAwake();
 }
 
-/* マイクは録画のたびに新しく取る（取りっぱなしにすると、加工画面での再生音などに音声セッションを奪われ、
-   何度か録画するうちに無音になることがあった）。取れなければ null（音声なしで録画する） */
-async function acquireMic() {
+/* 録画の前に、マイクが使える状態か確かめる。止まっていたら、映像と音声をいっしょに取り直す
+   （別々に取ると、録画の中で映像と音声の開始位置がずれるおそれがある） */
+async function prepareVideoStream() {
+  if (!camera.stream) return false;
+  const videoLive = camera.track && camera.track.readyState === 'live';
+  if (videoLive && (camera.hasLiveAudio() || camera.audioFailed)) return true;
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const track = stream.getAudioTracks()[0];
-    if (!track || track.readyState !== 'live') {
-      stream.getTracks().forEach((t) => t.stop());
-      return null;
-    }
-    return stream;
+    await camera.start(cameraOptions());
   } catch (e) {
-    return null;
+    return false;
   }
-}
-
-/* 動画モードに入ったとき、マイクの許可だけ先に確かめる（録画開始の瞬間に許可ダイアログが出て遅れないように） */
-async function checkMicPermission() {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
-  const mic = await acquireMic();
-  if (mic) {
-    mic.getTracks().forEach((t) => t.stop());
-  } else {
-    setStatus('マイクを使えません。このまま録画すると音声なしになります。ブラウザのサイト設定でマイクを許可してください。', true);
-  }
+  return !!camera.stream;
 }
 
 async function toggleVideoRecording() {
@@ -429,35 +439,27 @@ async function toggleVideoRecording() {
 
   if (state.busy || !camera.stream) return;
 
-  // マイクを取り直す間、二重に押されないようにする
+  // マイクの確認・取り直しの間、二重に押されないようにする
   state.busy = true;
-  setStatus('マイクを準備しています…');
-  const mic = await acquireMic();
-  // マイクを取るときに、映像側が止められてしまう端末への備え。止まっていたらカメラを起動し直す
-  if (camera.track && camera.track.readyState !== 'live') {
-    try { await camera.start({ mode: state.streamMode }); } catch (e) { /* 下でストリームの有無を確認する */ }
-  }
+  const ready = await prepareVideoStream();
   state.busy = false;
-  if (!camera.stream) {
-    if (mic) mic.getTracks().forEach((t) => t.stop());
+  if (!ready) {
     setStatus('カメラが止まっています。カメラを起動し直してください。', true);
     return;
   }
 
+  const hasMic = camera.hasLiveAudio();
   $('shutter').classList.add('is-busy');
   $('stage').classList.add('is-recording');
   $('recIndicator').hidden = false;
   $('recTime').textContent = '0:00 · 0MB';
-  setStatus(mic
+  setStatus(hasMic
     ? '録画中…（音声あり・無加工で録っています。もう一度シャッターで止まります）'
-    : '録画中…（マイクを使えないため、音声なしで録っています。もう一度シャッターで止まります）', !mic);
+    : '録画中…（マイクを使えないため、音声なしで録っています。もう一度シャッターで止まります）', !hasMic);
   keepAwake();
 
-  const micTracks = mic ? mic.getAudioTracks() : [];
-  const recStream = new MediaStream([...camera.stream.getVideoTracks(), ...micTracks]);
   const started = videoRecorder.start({
-    stream: recStream,
-    ownedTracks: micTracks,
+    stream: camera.stream,
     onTick: (elapsed, bytes) => {
       $('recTime').textContent = formatRecTime(elapsed) + ' · ' + formatMB(bytes);
     },
@@ -470,7 +472,6 @@ async function toggleVideoRecording() {
 
   if (!started) {
     endRecordingUI();
-    micTracks.forEach((t) => t.stop());
     setStatus('録画を開始できませんでした。', true);
     return;
   }
@@ -595,8 +596,8 @@ async function enterVideoWork(blob, record, { isNew = false } = {}) {
 async function playVideoWork() {
   workVideo.muted = !state.soundOn;
   videoPlayer.mutedByPolicy = false;
-  await videoPlayer.play();
-  if (state.soundOn && workVideo.muted) {
+  const started = await videoPlayer.play();
+  if (started && state.soundOn && workVideo.muted) {
     setStatus('音は、いちど停止してから「再生」を押すと出ます。');
   }
 }
@@ -761,6 +762,10 @@ function setupPlayControls() {
     $('playToggle').textContent = on ? '停止' : '再生';
   };
   videoPlayer.onTime = (t, duration) => updateVideoSeekUI(t, duration);
+  videoPlayer.onProblem = (message) => {
+    $('playToggle').textContent = '再生';
+    setStatus(message, true);
+  };
   $('backToCamera').addEventListener('click', () => {
     pausePlayback();
     setDrawing(false);
@@ -1411,18 +1416,78 @@ function makeVideoRenderer(framed, videoEl = workVideo) {
   return (ctx, t, w, h) => compositor.renderVideoFramed(ctx, videoEl, t, w, h, state.background);
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/* 動画作品の書き出し。書き出し専用の <video> を毎回作り、音声つきで撮り直す。
+   再生が始まらない・止まる場合は、音声の経路を使わない音なしの書き出しで、一度だけやり直す。
+   （音声つきの書き出しは iOS の挙動に左右されやすく、実機で確かめられていないための保険） */
+async function exportVideoWork(box, onProgress) {
+  const attempt = async (withAudio) => {
+    const src = document.createElement('video');
+    src.className = 'offscreenVideo';
+    src.muted = !withAudio;
+    document.body.append(src);
+    let tap = null;
+    let url = null;
+    try {
+      // ↓ここから最初の await までは、ボタンを押した操作の中。iOSが音声の再生を許すのはこの間だけ
+      if (withAudio) {
+        tap = new AudioTap(src);
+        tap.setup();
+      }
+      url = attachBlob(src, state.videoBlob);
+      if (withAudio) {
+        const unlocked = src.play().then(() => src.pause(), () => false);
+        await Promise.race([unlocked, sleep(3000)]);
+      }
+      const info = await settleVideoElement(src, videoPlayer.duration);
+      const audioTrack = tap ? await tap.prepare() : null;
+      const out = await encodeVideoWork({
+        video: src,
+        render: makeVideoRenderer(box.framed, src),
+        width: box.width, height: box.height,
+        audioTrack, duration: info.duration,
+        signal: state.exportAbort, onProgress
+      });
+      return { blob: out.blob, silent: out.silent, hadAudioTrack: !!audioTrack };
+    } finally {
+      // 書き出し用の <video> と音声コンテキストは、毎回きれいに手放す
+      if (tap) tap.close();
+      src.pause();
+      src.removeAttribute('src');
+      src.load();
+      src.remove();
+      if (url) URL.revokeObjectURL(url);
+    }
+  };
+
+  setExportStatus('動画を準備しています…', 0.02);
+  try {
+    const out = await attempt(true);
+    let note = '';
+    if (out.silent) note = '（音声は写せず、無音で書き出しました）';
+    else if (!out.hadAudioTrack) note = '（元の動画に音声が無かったか、取り出せませんでした）';
+    return { blob: out.blob, note };
+  } catch (err) {
+    if (!err || !err.stall || (state.exportAbort && state.exportAbort.aborted)) throw err;
+    setExportStatus('音声つきの書き出しが進まなかったため、音なしでやり直します…', 0.02);
+    const out = await attempt(false);
+    return { blob: out.blob, note: '（音声を写せなかったため、無音で書き出しました）' };
+  }
+}
+
 async function runExport() {
   const isVideo = state.workKind === 'video';
   if (state.exporting || (isVideo ? !state.videoBlob : !store.sequence.length)) return;
   state.exporting = true;
   $('exportBtn').disabled = true;
+  const wasPlaying = isVideo && videoPlayer.playing;
   pausePlayback();
   resetExportResult();
 
   const box = exportBox();
   const onProgress = (p, label) => setExportStatus(label + ' ' + Math.round(p * 100) + '%', p);
   let silentNote = '';
-  let exportSrc = null, exportTap = null, exportUrl = null;
 
   try {
     let blob, name;
@@ -1442,35 +1507,13 @@ async function runExport() {
       if (!blob) throw new Error('静止画の書き出しに失敗しました。');
       name = timestampName('jpg');
     } else if (isVideo) {
-      // 動画作品。元動画を実時間で再生しながら、加工した絵と音を撮り直す。
-      // 書き出し専用の <video> を新しく作る（加工画面のプレビュー用 <video> の音声経路には触らない）
+      // 動画作品。元動画を実時間で再生しながら、加工した絵と音を撮り直す
       state.exportAbort = { aborted: false };
       $('exportCancel').hidden = false;
       keepAwake();
-      setExportStatus('音声を準備しています…', 0.02);
-      exportSrc = document.createElement('video');
-      exportSrc.className = 'offscreenVideo';
-      exportSrc.muted = false;
-      document.body.append(exportSrc);
-      // ↓ここから await までの間は、ボタンを押した操作の中。iOSが音声の再生を許すのはこの間だけ
-      exportTap = new AudioTap(exportSrc);
-      exportTap.setup();
-      exportUrl = attachBlob(exportSrc, state.videoBlob);
-      const unlocked = exportSrc.play().then(() => exportSrc.pause(), () => false);
-      await unlocked;
-      const srcInfo = await settleVideoElement(exportSrc, videoPlayer.duration);
-      const audioTrack = await exportTap.prepare();
-      setExportStatus('動画を録っています…', 0.03);
-      const out = await encodeVideoWork({
-        video: exportSrc,
-        render: makeVideoRenderer(box.framed, exportSrc),
-        width: box.width, height: box.height,
-        audioTrack, duration: srcInfo.duration,
-        signal: state.exportAbort, onProgress
-      });
+      const out = await exportVideoWork(box, onProgress);
       blob = out.blob;
-      if (out.silent) silentNote = '（音声は写せず、無音で書き出しました）';
-      else if (!audioTrack) silentNote = '（元の動画に音声が無かったか、取り出せませんでした）';
+      silentNote = out.note;
       name = timestampName(extensionFor(pickMimeType()));
     } else if (state.format === 'gif') {
       setExportStatus('GIFを作っています…', 0.05);
@@ -1504,15 +1547,8 @@ async function runExport() {
     $('exportCancel').hidden = true;
     if (isVideo) {
       releaseAwake();
-      // 書き出し用の <video> と音声コンテキストを、毎回きれいに手放す
-      if (exportTap) exportTap.close();
-      if (exportSrc) {
-        exportSrc.pause();
-        exportSrc.removeAttribute('src');
-        exportSrc.load();
-        exportSrc.remove();
-      }
-      if (exportUrl) URL.revokeObjectURL(exportUrl);
+      // 書き出す前に再生していたなら、再生に戻す（止まったままに見えないように）
+      if (wasPlaying) playVideoWork();
     }
     player.refresh();
   }
@@ -1572,12 +1608,29 @@ async function persistNewCapture(result) {
       frameTimes: result.frames.map((f) => Math.round(f.elapsed)),
       metrics: state.metrics,
       settings: currentSettings(),
+      sizeBytes: blobs.reduce((n, b) => n + (b ? b.size : 0), 0),
       thumb
     }, blobs);
     refreshLibrary();
   } catch (e) {
     state.captureId = null;
   }
+}
+
+/* 大きさを記録していない古い作品は、中身のBlobの大きさを合計して補う（一度だけ。補ったら一覧を描き直す） */
+let backfilling = false;
+async function backfillSizes(items) {
+  const missing = items.filter((it) => typeof it.sizeBytes !== 'number');
+  if (!missing.length || backfilling) return;
+  backfilling = true;
+  try {
+    for (const it of missing) {
+      const bytes = await frameBytes(it.id);
+      await updateCapture(it.id, { sizeBytes: bytes }, { touch: false });   // 0 でも記録する（何度も数え直さない）
+    }
+  } catch (e) { /* 補えなくても、一覧は使える */ }
+  backfilling = false;
+  refreshLibrary();
 }
 
 async function refreshLibrary() {
@@ -1597,6 +1650,7 @@ async function refreshLibrary() {
     onOpen: openCapture,
     onDelete: removeCapture
   });
+  backfillSizes(items);
   const usage = await estimateUsage();
   const base = items.length + ' 件。この端末の中だけに保存され、どこにも送信されません。';
   $('libNote').textContent = usage && usage.usage

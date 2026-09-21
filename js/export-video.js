@@ -91,18 +91,20 @@ export async function encodeVideo({ render, sequence, fps, width, height, loops 
  * 元動画を実時間で再生しながら、1コマずつ加工して録画し直す。だから書き出しにかかる時間は
  * 元動画の長さと同じ（画面を開いたままにしておく必要がある）。
  * @param {Object} o
- *   video: 元動画の <video>（音声も、ここから写す）
+ *   video: 元動画の <video>（書き出し専用に作ったもの）
  *   render(ctx, timeSec, width, height): 1コマを描く
  *   audioTrack: 写し取った音声トラック（無ければ音なし）
  *   duration: 元動画の長さ（秒）
  *   signal: {aborted:boolean} 立てると中止
  * @returns {Promise<{blob: Blob, silent: boolean}>} silent は、音声を写せず無音で書き出したとき true
+ * 再生が始まらない・進まないときは、err.stall = true の例外を投げる（呼び出し側は音なしでやり直せる）
  */
 export async function encodeVideoWork({ video, render, width, height, audioTrack, duration, signal, onProgress }) {
   const mime = pickMimeType();
   if (!videoSupported() || !mime) {
     throw new Error('このブラウザは動画の書き出しに対応していません。');
   }
+  const stall = (message) => Object.assign(new Error(message), { stall: true });
 
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -113,9 +115,15 @@ export async function encodeVideoWork({ video, render, width, height, audioTrack
 
   const stream = canvas.captureStream(30);
   if (audioTrack) stream.addTrack(audioTrack);
-  // 画素数に応じたビットレート。フィルターの粒子やノイズは圧縮しにくく、低いとブロックノイズになるので多めに取る（上限はメモリのため）
-  const bps = Math.round(Math.min(16000000, Math.max(3000000, width * height * 30 * 0.45)));
-  const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: bps, audioBitsPerSecond: 128000 });
+  // 画素数に応じたビットレート。フィルターの粒子やノイズは圧縮しにくく、低いとブロックノイズになるので、
+  // 書き出し（24fps）でも 画素数×24×0.35bit 程度は取る。上限はメモリのため
+  const bps = Math.round(Math.min(10000000, Math.max(2000000, width * height * 24 * 0.35)));
+  let recorder;
+  try {
+    recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: bps, audioBitsPerSecond: 128000 });
+  } catch (e) {
+    recorder = new MediaRecorder(stream, { mimeType: mime });   // ビットレート指定を受け付けない実装
+  }
   const chunks = [];
   recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
   const stopped = new Promise((resolve) => { recorder.onstop = resolve; });
@@ -124,6 +132,15 @@ export async function encodeVideoWork({ video, render, width, height, audioTrack
   const ended = new Promise((resolve) => video.addEventListener('ended', resolve, { once: true }));
   let rafId = null;
   let silent = false;
+
+  /* play() の約束が返ってこない実装があるので、待ちきれなければ、実際に再生が始まったかで判断する */
+  const tryPlay = async () => {
+    const p = video.play();
+    if (p && p.then) {
+      await Promise.race([p.then(() => true, () => false), sleep(4000)]);
+    }
+    return !video.paused;
+  };
 
   try {
     video.loop = false;
@@ -137,13 +154,11 @@ export async function encodeVideoWork({ video, render, width, height, audioTrack
     render(ctx, video.currentTime, width, height);
 
     recorder.start(3000);
-    try {
-      await video.play();
-    } catch (e) {
+    if (!(await tryPlay())) {
       // 音ありの再生が許されなかった。音なしで書き出しを続ける
       video.muted = true;
       silent = true;
-      await video.play();
+      if (!(await tryPlay())) throw stall('動画の再生を始められませんでした。');
     }
 
     let lastT = -1;
@@ -153,19 +168,23 @@ export async function encodeVideoWork({ video, render, width, height, audioTrack
 
     await new Promise((resolve, reject) => {
       const tick = () => {
-        if (signal && signal.aborted) { reject(new Error('書き出しを中止しました。')); return; }
-        const t = video.currentTime;
-        if (t !== lastT) {
-          lastT = t;
-          lastMoveAt = performance.now();
-          render(ctx, t, width, height);
-          if (onProgress) onProgress(duration ? Math.min(1, t / duration) : 0, '録画中');
-        } else if (performance.now() - lastMoveAt > 15000 && !finished) {
-          reject(new Error('動画の再生が止まりました。もう一度お試しください。'));
-          return;
+        try {
+          if (signal && signal.aborted) { reject(new Error('書き出しを中止しました。')); return; }
+          const t = video.currentTime;
+          if (t !== lastT) {
+            lastT = t;
+            lastMoveAt = performance.now();
+            render(ctx, t, width, height);
+            if (onProgress) onProgress(duration ? Math.min(1, t / duration) : 0, '録画中');
+          } else if (performance.now() - lastMoveAt > 8000 && !finished) {
+            reject(stall('動画の再生が途中で止まりました。'));
+            return;
+          }
+          if (finished) { resolve(); return; }
+          rafId = requestAnimationFrame(tick);
+        } catch (e) {
+          reject(e);   // 描画中の例外を飲み込むと、書き出しが終わらないまま固まる
         }
-        if (finished) { resolve(); return; }
-        rafId = requestAnimationFrame(tick);
       };
       rafId = requestAnimationFrame(tick);
     });
@@ -178,8 +197,6 @@ export async function encodeVideoWork({ video, render, width, height, audioTrack
     video.loop = wasLoop;
     if (recorder.state !== 'inactive') recorder.stop();
     await stopped;
-    // 音声トラックは Web Audio の出口そのものなので止めない（止めると次の書き出しで使えなくなる）
-    if (audioTrack) stream.removeTrack(audioTrack);
     stream.getTracks().forEach((t) => t.stop());
     canvas.remove();
   }

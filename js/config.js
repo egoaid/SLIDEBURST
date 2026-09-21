@@ -3,8 +3,8 @@
 
 export const APP = {
   name: 'SLIDEBURST',
-  version: '0.7.1',
-  build: '20260921a',
+  version: '0.7.2',
+  build: '20260921b',
   url: 'https://egoaid.github.io/SLIDEBURST/'
 };
 
@@ -44,6 +44,9 @@ export const STREAM_MODES = {
   res: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
   max: { frameRate: { ideal: 60 } }
 };
+
+/* 「ふつうの動画」のコマ数。60fpsは要らない（負荷とファイルの大きさが倍になる）ので24fps。端末が24に対応しなければ30まで許す */
+export const VIDEO_FRAME_RATE = { ideal: 24, max: 30 };
 
 export const MAX_POOL_FRAMES = 72;
 

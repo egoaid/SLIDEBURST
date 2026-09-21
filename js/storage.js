@@ -80,14 +80,14 @@ export async function saveCapture(record, frameBlobs) {
   return record.id;
 }
 
-/* 編集内容だけを上書きする。フレームには触らない */
-export async function updateCapture(id, patch) {
+/* 編集内容だけを上書きする。フレームには触らない。touch=false のときは更新日時を変えない（一覧用の補完など） */
+export async function updateCapture(id, patch, { touch = true } = {}) {
   const db = await openDB();
   const t = tx(db, [CAPTURES], 'readwrite');
   const store = t.objectStore(CAPTURES);
   const current = await request(store.get(id));
   if (!current) return false;
-  store.put(Object.assign(current, patch, { updatedAt: Date.now() }));
+  store.put(Object.assign(current, patch, touch ? { updatedAt: Date.now() } : {}));
   await done(t);
   return true;
 }
@@ -110,6 +110,12 @@ export async function loadFrameBlobs(id) {
   const t = tx(db, [FRAMES], 'readonly');
   const rows = await request(t.objectStore(FRAMES).index('captureId').getAll(IDBKeyRange.only(id)));
   return rows.sort((a, b) => a.index - b.index).map((r) => r.blob);
+}
+
+/* 作品のフレーム（動画作品なら動画そのもの）の合計バイト数。Blob の大きさだけを見るので、中身は読まない */
+export async function frameBytes(id) {
+  const blobs = await loadFrameBlobs(id);
+  return blobs.reduce((n, b) => n + (b ? b.size : 0), 0);
 }
 
 export async function deleteCapture(id) {

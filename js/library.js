@@ -6,6 +6,15 @@ const fmtDate = (ms) => {
   return d.getFullYear() + '/' + p(d.getMonth() + 1) + '/' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
 };
 
+/* ファイルサイズの表示。1MB未満はKB、10MB未満は小数1桁、1GB以上はGB */
+export function formatBytes(n) {
+  if (!n) return '';
+  if (n < 1048576) return Math.max(1, Math.round(n / 1024)) + 'KB';
+  const mb = n / 1048576;
+  if (mb >= 1000) return (mb / 1024).toFixed(2) + 'GB';
+  return (mb < 10 ? mb.toFixed(1) : String(Math.round(mb))) + 'MB';
+}
+
 /**
  * 一覧を描く。サムネイルは保存済みの Blob から復元する。
  */
@@ -48,15 +57,16 @@ export function renderLibrary(container, items, { onOpen, onDelete, currentId })
     }
     const meta = document.createElement('span');
     meta.className = 'libItem__meta';
+    const sizeText = item.sizeBytes ? ' · ' + formatBytes(item.sizeBytes) : '';
     meta.innerHTML = item.kind === 'video'
       ? '<b>' + fmtDate(item.createdAt) + '</b>' +
         '<small>動画 · ' + (item.durationSec ? item.durationSec.toFixed(1) + '秒' : '') +
         (item.settings && item.settings.filterId && item.settings.filterId !== 'none' ? ' · ' + item.settings.filterId : '') +
-        '</small>'
+        sizeText + '</small>'
       : '<b>' + fmtDate(item.createdAt) + '</b>' +
         '<small>' + item.frameCount + 'コマ · ' + item.width + '×' + item.height +
         (item.settings && item.settings.filterId && item.settings.filterId !== 'none' ? ' · ' + item.settings.filterId : '') +
-        '</small>';
+        sizeText + '</small>';
     open.append(meta);
     open.addEventListener('click', () => onOpen(item.id));
 

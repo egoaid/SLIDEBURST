@@ -30,8 +30,9 @@ export function videoExtensionFor(mime) {
 }
 
 /* 録画のビットレートは、実際に取れた映像の大きさとコマ数から決める。
-   以前は6Mbps固定で、1080pや高コマ数のとき圧縮が足りず、ブロックノイズが出ていた。
-   画素数×コマ数×0.14bit を目安に、5〜20Mbpsの範囲に収める（上限は長時間録画でメモリを食いつぶさないため） */
+   6Mbps固定だった頃は、1080pや高コマ数のとき圧縮が足りず、ブロックノイズが出ていた。
+   一方で上げすぎるとファイルが大きくなり、書き出しや再生も重くなる。
+   画素数×コマ数×0.14bit を目安に、2.5〜12Mbps（24fpsの720pで約3.1Mbps、1080pで約7Mbps） */
 export const RECORD_AUDIO_BPS = 128000;
 const BITS_PER_PIXEL = 0.14;
 
@@ -40,21 +41,8 @@ export function recordBitrate(stream) {
   const st = t && t.getSettings ? t.getSettings() : {};
   const w = st.width || 1280;
   const h = st.height || 720;
-  const fps = Math.min(st.frameRate || 30, 60);
-  return Math.round(Math.min(20000000, Math.max(5000000, w * h * fps * BITS_PER_PIXEL)));
-}
-
-/* 空き容量がこれを下回りそうになったら、データを失う前に自動で止める */
-const MIN_FREE_BYTES = 150 * 1024 * 1024;
-
-async function freeBytes() {
-  if (navigator.storage && navigator.storage.estimate) {
-    try {
-      const e = await navigator.storage.estimate();
-      if (e && e.quota) return e.quota - (e.usage || 0);
-    } catch (err) { /* 取れない環境は見張りをあきらめる */ }
-  }
-  return null;
+  const fps = Math.min(st.frameRate || 24, 30);
+  return Math.round(Math.min(12000000, Math.max(2500000, w * h * fps * BITS_PER_PIXEL)));
 }
 
 export class VideoRecorder {

@@ -40,6 +40,7 @@ export class Compositor {
   constructor(store, doodle) {
     this.store = store;
     this.doodle = doodle;
+    this.videoPreviewScale = 1;        // 動画の編集プレビューの縮小率。端末が間に合わないとき VideoPlayer が下げる
     this.video = null;                 // 動画作品のとき {width, height}。バースト作品のときは null
     this.filterId = 'none';
     this.intensity = 100;              // 簡単設定の強さ（0〜150%）
@@ -111,6 +112,7 @@ export class Compositor {
   /* 動画作品にする（info: {width,height}）。null でバースト作品へ戻す */
   setVideoSource(info) {
     this.video = info ? { width: info.width, height: info.height } : null;
+    this.videoPreviewScale = 1;
     this.invalidate();
   }
 
@@ -134,7 +136,7 @@ export class Compositor {
     const r = this.rect;
     if (!this.video) return { width: r.width, height: r.height };
     const long = Math.max(r.width, r.height);
-    const s = Math.min(1, VIDEO_PREVIEW_LONG / long);
+    const s = Math.min(1, VIDEO_PREVIEW_LONG / long) * this.videoPreviewScale;
     return { width: Math.max(2, Math.round(r.width * s)), height: Math.max(2, Math.round(r.height * s)) };
   }
 

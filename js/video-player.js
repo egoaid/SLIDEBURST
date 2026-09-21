@@ -3,7 +3,9 @@
    バースト用の LoopPlayer と同じ呼び方（refresh / pause / play / toggle / playing）ができるので、
    main.js は「いまのプレイヤー」を差し替えるだけで済む。 */
 
-const DRAW_INTERVAL_MS = 30;   // 描く間隔の下限。フィルターとブラウン管を毎コマかけるので、30fps程度に抑える
+const DRAW_INTERVAL_MS = 40;   // 描く間隔の下限（24fps相当）。フィルターとブラウン管を毎コマかけるので、これ以上は描かない
+const SLOW_DRAW_MS = 55;       // 1コマの描画がこれより長い状態が続いたら、プレビューの解像度を下げる
+const MIN_PREVIEW_SCALE = 0.45;
 
 function once(el, name, ms) {
   return new Promise((resolve) => {
@@ -68,9 +70,18 @@ export class VideoPlayer {
     this.onTime = null;          // (timeSec, duration) => void
     this.onStateChange = null;   // (playing) => void
     this.onDraw = null;          // 1コマ描くたびに呼ばれる
-    this.fps = 30;               // LoopPlayer との互換用（書き出しの見積もりなどで参照される）
+    this.onProblem = null;       // (message) => void  再生できない・止まったときの通知
+    this._drawMs = 0;            // 描画時間の移動平均
+    this._drawCount = 0;
+    this.fps = 24;               // LoopPlayer との互換用（書き出しの見積もりなどで参照される）
 
     videoEl.addEventListener('seeked', () => { if (this.active && !this.playing) this.refresh(); });
+    videoEl.addEventListener('error', () => {
+      if (this.active && this.onProblem) {
+        const e = videoEl.error;
+        this.onProblem('動画の再生でエラーが出ました（コード ' + (e ? e.code : '?') + '）。');
+      }
+    });
     videoEl.addEventListener('pause', () => {
       if (this.active && this.playing && !videoEl.ended) this._setPlaying(false);
     });
@@ -130,10 +141,24 @@ export class VideoPlayer {
     const { width, height } = this.compositor.size;
     if (!width) return;
     this.resizeTo(width, height);
+    const t0 = performance.now();
     this.compositor.renderVideoFrame(this.ctx, v, v.currentTime, width, height);
     this._lastDraw = performance.now();
+    this._adaptPreview(this._lastDraw - t0);
     if (this.onTime) this.onTime(v.currentTime, this.duration);
     if (this.onDraw) this.onDraw();
+  }
+
+  /* フィルターとブラウン管を毎コマかけるので、端末が間に合わないと再生が止まったように見える。
+     描画が遅い状態が続いたら、プレビューの解像度を段階的に下げて間に合わせる（書き出しの画質には影響しない） */
+  _adaptPreview(ms) {
+    this._drawMs = this._drawMs ? this._drawMs * 0.8 + ms * 0.2 : ms;
+    if (++this._drawCount % 12 !== 0) return;
+    const c = this.compositor;
+    if (this._drawMs > SLOW_DRAW_MS && c.videoPreviewScale > MIN_PREVIEW_SCALE) {
+      c.videoPreviewScale = Math.max(MIN_PREVIEW_SCALE, c.videoPreviewScale * 0.8);
+      this._drawMs = 0;
+    }
   }
 
   /* 設定が変わったときに、いまのコマを描き直す */
@@ -153,15 +178,32 @@ export class VideoPlayer {
     this.seek(this.video.currentTime + deltaSec);
   }
 
-  async play() {
-    if (!this.active || this.playing) return;
+  /* v.play() を、待ちきれないときは諦めて結果（本当に再生が始まったか）を返す。iOSは約束が返ってこないことがある */
+  async _tryPlay() {
     const v = this.video;
-    try {
-      await v.play();
-    } catch (e) {
-      // 音ありの自動再生が許されない場合は、音なしで再生する（次のタップで音を戻せる）
+    const p = v.play();
+    if (p && p.then) {
+      await Promise.race([
+        p.then(() => true, () => false),
+        new Promise((resolve) => setTimeout(resolve, 3000))
+      ]);
+    }
+    return !v.paused;
+  }
+
+  async play() {
+    if (!this.active || this.playing) return true;
+    const v = this.video;
+    let ok = await this._tryPlay();
+    if (!ok) {
+      // 音ありの自動再生が許されない場合は、音なしで再生する（次に「再生」を押した操作で音を戻せる）
       v.muted = true;
-      try { await v.play(); } catch (e2) { return; }
+      this.mutedByPolicy = true;
+      ok = await this._tryPlay();
+    }
+    if (!ok) {
+      if (this.onProblem) this.onProblem('再生を始められませんでした。「再生」を押してください。');
+      return false;
     }
     this._setPlaying(true);
     const tick = (now) => {
@@ -170,6 +212,25 @@ export class VideoPlayer {
       this.rafId = requestAnimationFrame(tick);
     };
     this.rafId = requestAnimationFrame(tick);
+    this._watchProgress();
+    return true;
+  }
+
+  /* 再生を始めたのに時間が進まないとき（読み込み待ち・音声セッションの中断など）に、一度だけ立て直す */
+  _watchProgress() {
+    const v = this.video;
+    const t0 = v.currentTime;
+    setTimeout(async () => {
+      if (!this.playing || v.paused || v.currentTime !== t0) return;
+      this.pause();
+      v.muted = true;
+      await this.play();
+      setTimeout(() => {
+        if (this.playing && !v.paused && v.currentTime === t0 && this.onProblem) {
+          this.onProblem('再生が進みません（読み込み状態 ' + v.readyState + '）。いちど停止して、もう一度「再生」を押してください。');
+        }
+      }, 2000);
+    }, 2000);
   }
 
   pause() {
