@@ -20,9 +20,9 @@ export const PARAM_SCHEMAS = {
     { key: 'contrast',    label: 'コントラスト' },
     { key: 'yellow',      label: '黄色味' },
     { key: 'tapeNoise',   label: 'テープノイズ' },
-    { key: 'softFocus',   label: 'ソフトフォーカス' },
+    { key: 'softFocus',   label: 'CCDの柔らかさ' },
     { key: 'scanlines',   label: 'スキャンライン' },
-    { key: 'chroma',      label: '色収差' },
+    { key: 'chroma',      label: '色にじみ' },
     { key: 'flicker',     label: 'フリッカー' },
     { key: 'instability', label: '画面の不安定さ' }
   ],
@@ -428,6 +428,118 @@ function unevenExposure(ctx, w, h, rand, k) {
   ctx.fillRect(0, 0, w, h);
 }
 
+/* --- Hi8: CCD Handycamの撮像・記録過程を意識した処理 ---------------------
+
+   単純な「ぼかしフィルター」ではなく、
+     (a) レンズ／CCDによる光学的な高周波の減衰＋ハイライトのにじみ（ハレーション）
+     (b) 輝度(Y)と色(C)を分けて、Cのほうをよりはっきり低帯域化する
+   という2段階で、画像の「情報の残り方」そのものをHi8のCCD Handycamらしくする。
+   大きな輪郭やコントラストはそのまま残し、ピクセル単位の高周波ディテールだけを
+   穏やかに間引く。全体に均一なGaussian Blurをかける映画的なソフトフォーカスとは違う。
+   （詳しい設計意図は DEVELOPER_NOTES.md の該当節を参照） */
+
+function clampi(v, min, max) { return v < min ? min : (v > max ? max : v); }
+
+/* 指定チャンネル（0=R,1=G,2=B）だけを取り出す／書き戻す。Y/Cb/Cr各面の抽出にも使う */
+function extractChannel(data, w, h, c) {
+  const n = w * h;
+  const out = new Float32Array(n);
+  for (let p = 0, i = c; p < n; p++, i += 4) out[p] = data[i];
+  return out;
+}
+
+/* extractChannel の逆。処理し終えたチャンネルを書き戻す */
+function writeChannel(data, plane, w, h, c) {
+  const n = w * h;
+  for (let p = 0, i = c; p < n; p++, i += 4) data[i] = plane[p];
+}
+
+/* 1次元の箱ぼかしを横→縦の2パスに分けて適用する（半径によらず画素数に比例する速さで済む）。
+   端は同じ画素を繰り返す（クランプ）ことで、画面端が不自然に暗くならないようにする。 */
+function boxBlurPlane(src, w, h, r) {
+  if (r <= 0) return src.slice();
+  const size = r * 2 + 1;
+  const tmp = new Float32Array(w * h);
+  const dst = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    let sum = 0;
+    for (let x = -r; x <= r; x++) sum += src[row + clampi(x, 0, w - 1)];
+    for (let x = 0; x < w; x++) {
+      tmp[row + x] = sum / size;
+      sum += src[row + clampi(x + r + 1, 0, w - 1)] - src[row + clampi(x - r, 0, w - 1)];
+    }
+  }
+  for (let x = 0; x < w; x++) {
+    let sum = 0;
+    for (let y = -r; y <= r; y++) sum += tmp[clampi(y, 0, h - 1) * w + x];
+    for (let y = 0; y < h; y++) {
+      dst[y * w + x] = sum / size;
+      sum += tmp[clampi(y + r + 1, 0, h - 1) * w + x] - tmp[clampi(y - r, 0, h - 1) * w + x];
+    }
+  }
+  return dst;
+}
+
+/* ①②③④⑤⑥ レンズ／CCDの光学的な柔らかさ（高周波低下＋ハレーション）と、
+   Y/C分離での色の低帯域化を、ひとつのバッファの上でまとめて行う。
+   （getImageData/putImageDataは画像全体のコピーを伴い重いので、段階ごとに分けず1回にまとめてある。
+   処理の内容そのものは、分けて書いた場合と変わらない） */
+function hi8OpticalAndChroma(d, w, h, amount) {
+  if (amount <= 0.01) return;
+  const R = extractChannel(d, w, h, 0), G = extractChannel(d, w, h, 1), B = extractChannel(d, w, h, 2);
+  const n = w * h;
+
+  // ①② 高周波の穏やかな減衰（半径1の箱ぼかしを部分的にしか混ぜない＝中間の周波数はほぼ残る）
+  const highFreqMix = Math.min(0.55, 0.4 * amount);
+  const Rb = boxBlurPlane(R, w, h, 1), Gb = boxBlurPlane(G, w, h, 1), Bb = boxBlurPlane(B, w, h, 1);
+  for (let p = 0; p < n; p++) {
+    R[p] = R[p] * (1 - highFreqMix) + Rb[p] * highFreqMix;
+    G[p] = G[p] * (1 - highFreqMix) + Gb[p] * highFreqMix;
+    B[p] = B[p] * (1 - highFreqMix) + Bb[p] * highFreqMix;
+  }
+
+  // ③ ハレーション。明るい部分だけを広めにぼかし、スクリーン合成で薄く足す
+  const bright = new Float32Array(n);
+  for (let p = 0; p < n; p++) {
+    const y = 0.299 * R[p] + 0.587 * G[p] + 0.114 * B[p];
+    const v = y - 182;
+    bright[p] = v > 0 ? v : 0;
+  }
+  const haloR = Math.max(2, Math.round(Math.min(w, h) * 0.012));
+  const halo = boxBlurPlane(bright, w, h, haloR);
+  const gain = 0.62 * amount;
+  for (let p = 0; p < n; p++) {
+    const a = Math.min(150, halo[p] * gain);
+    if (a <= 0.4) continue;
+    R[p] = 255 - (255 - R[p]) * (255 - a) / 255;
+    G[p] = 255 - (255 - G[p]) * (255 - a) / 255;
+    B[p] = 255 - (255 - B[p]) * (255 - a) / 255;
+  }
+
+  // ④⑤⑥ 輝度(Y)と色(C)を分け、Cのほうを明確に低帯域化する（Yはここでは触らない）
+  const Y = new Float32Array(n), Cb = new Float32Array(n), Cr = new Float32Array(n);
+  for (let p = 0; p < n; p++) {
+    const r = R[p], g = G[p], b = B[p];
+    Y[p] = 0.299 * r + 0.587 * g + 0.114 * b;
+    Cb[p] = -0.168736 * r - 0.331264 * g + 0.5 * b;
+    Cr[p] = 0.5 * r - 0.418688 * g - 0.081312 * b;
+  }
+  const radius = Math.max(1, Math.round(1 + 2.4 * amount));
+  const cb = boxBlurPlane(Cb, w, h, radius);
+  const cr = boxBlurPlane(Cr, w, h, radius);
+  for (let p = 0; p < n; p++) {
+    const y = Y[p], u = cb[p], v = cr[p];
+    R[p] = y + 1.402 * v;
+    G[p] = y - 0.344136 * u - 0.714136 * v;
+    B[p] = y + 1.772 * u;
+  }
+
+  writeChannel(d, R, w, h, 0);
+  writeChannel(d, G, w, h, 1);
+  writeChannel(d, B, w, h, 2);
+}
+
 /* --- 各プリセット ---------------------------------------------------- */
 
 function hi8(out, src, p, rand) {
@@ -439,19 +551,27 @@ function hi8(out, src, p, rand) {
     scan = pct(p, 'scanlines'), chroma = pct(p, 'chroma'), flicker = pct(p, 'flicker'),
     instability = pct(p, 'instability');
 
+  // 手ブレ・トラッキングに相当する上下のわずかなジッター
   const jy = (rand() - 0.5) * h * 0.012 * instability;
   ctx.drawImage(src, 0, jy);
-  softFocus(out, 0.34 * soft);
 
+  // 以降は1回のgetImageData/putImageDataの中で完結させる（画像全体のコピーが重いため）
+  const scanAmt = 0.035 * scan;
   const satFactor = clamp(saturation / 1.5, 0, 1.3);
   const contrastMul = 0.78 + 0.5 * contrast;
   const fadeC = 1 - 0.16 * fade;
   const flickerMul = 1 + (rand() - 0.5) * 0.16 * flicker;
-  const scanAmt = 0.05 * scan;
 
   pixelPass(ctx, w, h, (d, ww, hh) => {
+    // ①②③ レンズ／CCDの光学的な柔らかさ＋ハレーション（Y/C分離の前、光として一体だった段階）
+    // ④⑤⑥ Y/C分離。Cのほうをはっきり低帯域化して色の境界を柔らかくする
+    hi8OpticalAndChroma(d, ww, hh, soft);
+
+    // ⑦⑧⑨ アナログ記録・再生・コンポジット出力由来の質感と、テープノイズ・フリッカーなど
+    // （CCDの柔らかさが主役なので、以前よりはっきり弱めにしてある）
     const copy = new Uint8ClampedArray(d);
-    if (chroma > 0.02) chromaShift(d, copy, ww, hh, 1.4 * chroma);
+    // Hi8はY/C分離記録なので、コンポジットのVHSほど色がにじまない。ごく弱いクロスカラー程度に留める
+    if (chroma > 0.02) chromaShift(d, copy, ww, hh, 0.6 * chroma);
     for (let y = 0; y < hh; y++) {
       const scanMul = (y & 1) ? 1 - scanAmt : 1;
       for (let x = 0; x < ww; x++) {
@@ -463,7 +583,7 @@ function hi8(out, src, p, rand) {
         g = (g - 128) * fadeC * contrastMul + 128;
         b = (b - 128) * fadeC * contrastMul + 128;
         const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-        const n = (rand() - 0.5) * 36 * tapeNoise;
+        const n = (rand() - 0.5) * 22 * tapeNoise;
         d[i] = (lum + (r - lum) * satFactor + n) * scanMul;
         d[i + 1] = (lum + (g - lum) * satFactor + n) * scanMul;
         d[i + 2] = (lum + (b - lum) * satFactor + n * 1.2) * scanMul;
@@ -474,9 +594,8 @@ function hi8(out, src, p, rand) {
     }
   });
 
-  vignette(ctx, w, h, 0.22);
+  vignette(ctx, w, h, 0.18);
 }
-
 function vhs(out, src, p, rand) {
   const w = out.width, h = out.height;
   const ctx = out.getContext('2d', { alpha: false });
