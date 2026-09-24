@@ -491,7 +491,7 @@ function hi8OpticalAndChroma(d, w, h, amount) {
   const n = w * h;
 
   // ①② 高周波の穏やかな減衰（半径1の箱ぼかしを部分的にしか混ぜない＝中間の周波数はほぼ残る）
-  const highFreqMix = Math.min(0.55, 0.4 * amount);
+  const highFreqMix = Math.min(0.6, 0.46 * amount);
   const Rb = boxBlurPlane(R, w, h, 1), Gb = boxBlurPlane(G, w, h, 1), Bb = boxBlurPlane(B, w, h, 1);
   for (let p = 0; p < n; p++) {
     R[p] = R[p] * (1 - highFreqMix) + Rb[p] * highFreqMix;
@@ -499,16 +499,28 @@ function hi8OpticalAndChroma(d, w, h, amount) {
     B[p] = B[p] * (1 - highFreqMix) + Bb[p] * highFreqMix;
   }
 
-  // ③ ハレーション。明るい部分だけを広めにぼかし、スクリーン合成で薄く足す
+  // ②' もう一段階、少し広めの半径を弱めに混ぜる。「眠い」「べたっとした」見え方は、
+  // 一番細かい高周波だけでなく、もう少し広い帯域までなだらかに削れていくことで出る。
+  // 半径1だけだと、レンズ・CCDの柔らかさというより「輪郭だけがちょっと甘い」程度で止まってしまう。
+  const midFreqMix = Math.min(0.4, 0.3 * amount);
+  const Rm = boxBlurPlane(R, w, h, 2), Gm = boxBlurPlane(G, w, h, 2), Bm = boxBlurPlane(B, w, h, 2);
+  for (let p = 0; p < n; p++) {
+    R[p] = R[p] * (1 - midFreqMix) + Rm[p] * midFreqMix;
+    G[p] = G[p] * (1 - midFreqMix) + Gm[p] * midFreqMix;
+    B[p] = B[p] * (1 - midFreqMix) + Bm[p] * midFreqMix;
+  }
+
+  // ③ ハレーション／薄いにじみ。明るい部分だけでなく中間より上の明るさも広く柔らかく持ち上げることで、
+  // 全体がうっすら白っぽく霞んだような「べたっとした」質感を足す（明るい部分ほど強く効く）
   const bright = new Float32Array(n);
   for (let p = 0; p < n; p++) {
     const y = 0.299 * R[p] + 0.587 * G[p] + 0.114 * B[p];
-    const v = y - 182;
+    const v = y - 150;
     bright[p] = v > 0 ? v : 0;
   }
-  const haloR = Math.max(2, Math.round(Math.min(w, h) * 0.012));
+  const haloR = Math.max(2, Math.round(Math.min(w, h) * 0.02));
   const halo = boxBlurPlane(bright, w, h, haloR);
-  const gain = 0.62 * amount;
+  const gain = 0.7 * amount;
   for (let p = 0; p < n; p++) {
     const a = Math.min(150, halo[p] * gain);
     if (a <= 0.4) continue;
@@ -558,9 +570,15 @@ function hi8(out, src, p, rand) {
   // 以降は1回のgetImageData/putImageDataの中で完結させる（画像全体のコピーが重いため）
   const scanAmt = 0.035 * scan;
   const satFactor = clamp(saturation / 1.5, 0, 1.3);
-  const contrastMul = 0.78 + 0.5 * contrast;
+  // 以前より低めのベース（黒が締まりすぎない、ぱきっとしすぎないコントラスト）
+  const contrastMul = 0.66 + 0.26 * contrast;
   const fadeC = 1 - 0.16 * fade;
   const flickerMul = 1 + (rand() - 0.5) * 0.16 * flicker;
+  // 黒浮き・薄いもや（veiling glare）。CCD・レンズの光の滲みで、黒が締まりきらず、
+  // 全体がうっすら白く霞んだような「べたっとした」質感になる。暗い部分ほど強く、
+  // 明るい部分にはほとんど乗らない（色そのものは薄くならない）。CCDの柔らかさの一部として、
+  // 「softFocus」の強さに連動させる（0%でも最低限は残る＝Hi8は元からこの傾向がある）
+  const liftMax = 8 + 16 * soft;
 
   pixelPass(ctx, w, h, (d, ww, hh) => {
     // ①②③ レンズ／CCDの光学的な柔らかさ＋ハレーション（Y/C分離の前、光として一体だった段階）
@@ -576,17 +594,21 @@ function hi8(out, src, p, rand) {
       const scanMul = (y & 1) ? 1 - scanAmt : 1;
       for (let x = 0; x < ww; x++) {
         const i = (y * ww + x) * 4;
-        let r = d[i] * flickerMul + 6 * fade + 14 * yellow;
-        let g = d[i + 1] * flickerMul + 6 * fade + 9 * yellow;
-        let b = d[i + 2] * flickerMul + 6 * fade - 6 * yellow;
-        r = (r - 128) * fadeC * contrastMul + 128;
-        g = (g - 128) * fadeC * contrastMul + 128;
-        b = (b - 128) * fadeC * contrastMul + 128;
-        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+        const r0 = d[i] * flickerMul + 6 * fade + 14 * yellow;
+        const g0 = d[i + 1] * flickerMul + 6 * fade + 9 * yellow;
+        const b0 = d[i + 2] * flickerMul + 6 * fade - 6 * yellow;
+        // コントラスト・退色・黒浮きは明るさ(輝度)にだけ効かせ、色の差分（dr/dg/db）はそのまま保つ。
+        // 輝度と色を分けずに r,g,b を直接縮めると、コントラストを下げるほど彩度まで一緒に落ちてしまう
+        // （見た目の「薄さ」ではなく、実際に色が減ってしまう）。ここは分けて、色は satFactor だけで扱う。
+        const lum0 = 0.299 * r0 + 0.587 * g0 + 0.114 * b0;
+        const dr = r0 - lum0, dg = g0 - lum0, db = b0 - lum0;
+        let lum = (lum0 - 128) * fadeC * contrastMul + 128;
+        // 黒浮き・もや。暗いところほど強く効き、明るいところ（lum≈150以上）にはほぼ乗らない
+        if (lum < 150) lum += liftMax * (1 - lum / 150);
         const n = (rand() - 0.5) * 22 * tapeNoise;
-        d[i] = (lum + (r - lum) * satFactor + n) * scanMul;
-        d[i + 1] = (lum + (g - lum) * satFactor + n) * scanMul;
-        d[i + 2] = (lum + (b - lum) * satFactor + n * 1.2) * scanMul;
+        d[i] = (lum + dr * satFactor + n) * scanMul;
+        d[i + 1] = (lum + dg * satFactor + n) * scanMul;
+        d[i + 2] = (lum + db * satFactor + n * 1.2) * scanMul;
       }
     }
     if (instability > 0.15) {
