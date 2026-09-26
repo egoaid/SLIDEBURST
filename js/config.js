@@ -3,28 +3,28 @@
 
 export const APP = {
   name: 'SLIDEBURST',
-  version: '0.7.4',
-  build: '20260924b',
+  version: '0.8.0',
+  build: '20260926a',
   url: 'https://egoaid.github.io/SLIDEBURST/'
 };
 
 /* 撮影時間。短いほど被写体が止まったまま視点だけが動く */
 export const DURATIONS = [
-  { ms: 50,  label: '0.05s', hint: '4コマ前後' },
-  { ms: 100, label: '0.10s', hint: '6コマ前後' },
-  { ms: 150, label: '0.15s', hint: '8コマ前後' },
-  { ms: 200, label: '0.20s', hint: '10コマ前後' },
-  { ms: 300, label: '0.30s', hint: '長め' }
+  { ms: 50,  label: '0.05s', hint: { en: '~4 frames', ja: '4コマ前後' } },
+  { ms: 100, label: '0.10s', hint: { en: '~6 frames', ja: '6コマ前後' } },
+  { ms: 150, label: '0.15s', hint: { en: '~8 frames', ja: '8コマ前後' } },
+  { ms: 200, label: '0.20s', hint: { en: '~10 frames', ja: '10コマ前後' } },
+  { ms: 300, label: '0.30s', hint: { en: 'Longer', ja: '長め' } }
 ];
 
 export const DEFAULT_DURATION_MS = 100;
 
 /* セルフタイマー */
 export const TIMER_OPTIONS = [
-  { value: 0,     label: 'なし' },
-  { value: 3000,  label: '3秒' },
-  { value: 5000,  label: '5秒' },
-  { value: 10000, label: '10秒' }
+  { value: 0,     label: { en: 'Off', ja: 'なし' } },
+  { value: 3000,  label: { en: '3s', ja: '3秒' } },
+  { value: 5000,  label: { en: '5s', ja: '5秒' } },
+  { value: 10000, label: { en: '10s', ja: '10秒' } }
 ];
 
 /* 往復再生に使うコマ数。0 は取得した全フレーム */
@@ -33,7 +33,7 @@ export const FRAME_MODES = [
   { count: 4,  label: '4' },
   { count: 6,  label: '6' },
   { count: 8,  label: '8' },
-  { count: 0,  label: '全部' }
+  { count: 0,  label: { en: 'All', ja: '全部' } }
 ];
 
 export const DEFAULT_FRAME_MODE = 0;
@@ -52,9 +52,9 @@ export const MAX_POOL_FRAMES = 72;
 
 /* 日付焼き込みの色。当時のカメラに載っていた発色に寄せる */
 export const STAMP_COLORS = [
-  { id: 'amber', label: 'アンバー', value: '#ff8a1f' },
-  { id: 'white', label: 'ホワイト', value: '#fff4e2' },
-  { id: 'lime',  label: 'グリーン', value: '#8bff6a' }
+  { id: 'amber', label: { en: 'Amber', ja: 'アンバー' }, value: '#ff8a1f' },
+  { id: 'white', label: { en: 'White', ja: 'ホワイト' }, value: '#fff4e2' },
+  { id: 'lime',  label: { en: 'Green', ja: 'グリーン' }, value: '#8bff6a' }
 ];
 
 export const EMOJI_SET = [
@@ -67,18 +67,18 @@ export const PEN_COLORS = ['#ffffff', '#ff4d6d', '#ffd23f', '#35c8d8', '#7ad46a'
 
 /* 動画の長さ。作品そのものは短いまま、書き出しでくり返す */
 export const EXPORT_DURATIONS = [
-  { value: 2,  label: '2秒' },
-  { value: 5,  label: '5秒' },
-  { value: 10, label: '10秒' },
-  { value: 15, label: '15秒' },
-  { value: 30, label: '30秒' }
+  { value: 2,  label: { en: '2s', ja: '2秒' } },
+  { value: 5,  label: { en: '5s', ja: '5秒' } },
+  { value: 10, label: { en: '10s', ja: '10秒' } },
+  { value: 15, label: { en: '15s', ja: '15秒' } },
+  { value: 30, label: { en: '30s', ja: '30秒' } }
 ];
 
 export const DEFAULT_EXPORT_SECONDS = 5;
 
 /* 書き出し枠。作品を切らずに、この比率の中へ収める */
 export const SOCIAL_FRAMES = [
-  { id: 'artwork', label: '作品のまま', ratio: null },
+  { id: 'artwork', label: { en: 'Original', ja: '作品のまま' }, ratio: null },
   { id: '1x1',     label: '1:1',       ratio: 1 },
   { id: '4x5',     label: '4:5',       ratio: 4 / 5 },
   { id: '9x16',    label: '9:16',      ratio: 9 / 16 },
@@ -86,14 +86,14 @@ export const SOCIAL_FRAMES = [
 ];
 
 export const BACKGROUNDS = [
-  { id: 'blur',  label: 'ぼかし' },
-  { id: 'black', label: '黒' },
-  { id: 'white', label: '白' }
+  { id: 'blur',  label: { en: 'Blur', ja: 'ぼかし' } },
+  { id: 'black', label: { en: 'Black', ja: '黒' } },
+  { id: 'white', label: { en: 'White', ja: '白' } }
 ];
 
 /* 撮影中の構図ガイド */
 export const GUIDES = [
-  { id: 'off',  label: 'なし',  ratio: null },
+  { id: 'off',  label: { en: 'Off', ja: 'なし' },  ratio: null },
   { id: '4x3',  label: '4:3',   ratio: 4 / 3 },
   { id: '1x1',  label: '1:1',   ratio: 1 },
   { id: '3x4',  label: '3:4',   ratio: 3 / 4 }
@@ -102,17 +102,26 @@ export const GUIDES = [
 export const EXPORT_FORMATS = [
   {
     id: 'mp4',
-    label: '動画',
-    hint: 'インスタのストーリーやリール、LINEやメッセージで送るならこれ。写真アプリにビデオとして保存されます。'
+    label: { en: 'Video', ja: '動画' },
+    hint: {
+      en: 'Best for Instagram Stories/Reels, LINE, or messages. Saved to Photos as a video.',
+      ja: 'インスタのストーリーやリール、LINEやメッセージで送るならこれ。写真アプリにビデオとして保存されます。'
+    }
   },
   {
     id: 'gif',
     label: 'GIF',
-    hint: 'どこでも勝手にループします。LINEやXに貼るならこれ。写真アプリには画像として保存されます。'
+    hint: {
+      en: 'Loops on its own anywhere. Best for LINE or X. Saved to Photos as an image.',
+      ja: 'どこでも勝手にループします。LINEやXに貼るならこれ。写真アプリには画像として保存されます。'
+    }
   },
   {
     id: 'photo',
-    label: '静止画',
-    hint: 'いま表示しているコマ1枚を、フィルターやスタンプごと写真として保存します。'
+    label: { en: 'Photo', ja: '静止画' },
+    hint: {
+      en: 'Saves the frame currently on screen as a photo, filters and stamps included.',
+      ja: 'いま表示しているコマ1枚を、フィルターやスタンプごと写真として保存します。'
+    }
   }
 ];

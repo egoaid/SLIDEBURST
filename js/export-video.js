@@ -1,6 +1,8 @@
 /* export-video.js — ループ再生を録画して動画ファイルにする
    iOS Safari の MediaRecorder は MP4(H.264) を直接吐けるので、それを最優先で使う。 */
 
+import { L } from './i18n.js';
+
 const CANDIDATES = [
   'video/mp4;codecs=avc1.42E01E',
   'video/mp4',
@@ -39,7 +41,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export async function encodeVideo({ render, sequence, fps, width, height, loops = 4, onProgress }) {
   const mime = pickMimeType();
   if (!videoSupported() || !mime) {
-    throw new Error('このブラウザは動画の書き出しに対応していません。GIFで保存してください。');
+    throw new Error(L('This browser can\u2019t export video. Please save as a GIF instead.', 'このブラウザは動画の書き出しに対応していません。GIFで保存してください。'));
   }
 
   const canvas = document.createElement('canvas');
@@ -71,7 +73,7 @@ export async function encodeVideo({ render, sequence, fps, width, height, loops 
           try { track.requestFrame(); } catch (e) { /* fps指定のストリームでは無視されることがある */ }
         }
         step++;
-        if (onProgress) onProgress(step / totalSteps, '録画中');
+        if (onProgress) onProgress(step / totalSteps, L('Recording', '録画中'));
         await sleep(interval);
       }
     }
@@ -102,7 +104,7 @@ export async function encodeVideo({ render, sequence, fps, width, height, loops 
 export async function encodeVideoWork({ video, render, width, height, audioTrack, duration, signal, onProgress }) {
   const mime = pickMimeType();
   if (!videoSupported() || !mime) {
-    throw new Error('このブラウザは動画の書き出しに対応していません。');
+    throw new Error(L('This browser can\u2019t export video.', 'このブラウザは動画の書き出しに対応していません。'));
   }
   const stall = (message) => Object.assign(new Error(message), { stall: true });
 
@@ -158,7 +160,7 @@ export async function encodeVideoWork({ video, render, width, height, audioTrack
       // 音ありの再生が許されなかった。音なしで書き出しを続ける
       video.muted = true;
       silent = true;
-      if (!(await tryPlay())) throw stall('動画の再生を始められませんでした。');
+      if (!(await tryPlay())) throw stall(L('Couldn\u2019t start playing the video.', '動画の再生を始められませんでした。'));
     }
 
     let lastT = -1;
@@ -169,15 +171,15 @@ export async function encodeVideoWork({ video, render, width, height, audioTrack
     await new Promise((resolve, reject) => {
       const tick = () => {
         try {
-          if (signal && signal.aborted) { reject(new Error('書き出しを中止しました。')); return; }
+          if (signal && signal.aborted) { reject(new Error(L('Export was cancelled.', '書き出しを中止しました。'))); return; }
           const t = video.currentTime;
           if (t !== lastT) {
             lastT = t;
             lastMoveAt = performance.now();
             render(ctx, t, width, height);
-            if (onProgress) onProgress(duration ? Math.min(1, t / duration) : 0, '録画中');
+            if (onProgress) onProgress(duration ? Math.min(1, t / duration) : 0, L('Recording', '録画中'));
           } else if (performance.now() - lastMoveAt > 8000 && !finished) {
-            reject(stall('動画の再生が途中で止まりました。'));
+            reject(stall(L('Video playback stopped partway through.', '動画の再生が途中で止まりました。')));
             return;
           }
           if (finished) { resolve(); return; }

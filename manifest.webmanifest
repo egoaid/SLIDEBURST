@@ -1,7 +1,7 @@
 {
-  "name": "SLIDEBURST — 動く立体写真カメラ",
+  "name": "SLIDEBURST — moving 3D photo camera",
   "short_name": "SLIDEBURST",
-  "description": "一瞬の横移動で、止まった人が立体的に動き出す。iPhoneの1眼で撮る多視点ループカメラ。",
+  "description": "A quick sideways slide turns a still moment into a 3D-looking loop. A multi-view loop camera shot with one iPhone lens.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

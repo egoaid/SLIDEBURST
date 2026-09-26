@@ -2,10 +2,16 @@
 
 import { $ } from './utils.js';
 import { makeThumbnail } from './frames.js';
+import { tf } from './i18n.js';
 
-/* ラジオ相当のチップ群 */
+/* ラジオ相当のチップ群。items は毎回そのまま container に覚えさせておく（言語切り替え時に
+   選択状態はそのまま、ラベルだけを再翻訳するため。retranslateDynamicUI 参照） */
+const chipContainers = new Set();
+
 export function buildChips(container, items, selectedValue, onSelect) {
   container.textContent = '';
+  container.__i18nItems = items;
+  chipContainers.add(container);
   items.forEach((item) => {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -13,7 +19,7 @@ export function buildChips(container, items, selectedValue, onSelect) {
     btn.setAttribute('role', 'radio');
     btn.dataset.value = String(item.value);
     btn.setAttribute('aria-checked', item.value === selectedValue ? 'true' : 'false');
-    btn.innerHTML = '<span>' + item.label + '</span>' + (item.hint ? '<small>' + item.hint + '</small>' : '');
+    btn.innerHTML = '<span>' + tf(item.label) + '</span>' + (item.hint ? '<small>' + tf(item.hint) + '</small>' : '');
     btn.addEventListener('click', () => {
       container.querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-checked', 'false'));
       btn.setAttribute('aria-checked', 'true');
@@ -137,23 +143,21 @@ export function markStripUsage(container, store, currentSourceIndex) {
   });
 }
 
-/**
- * くわしい設定のスライダー列を作る。
- * @param {HTMLElement} container
- * @param {Array<{key:string,label:string}>} schema
- * @param {Object} values 現在の値（key -> 0〜150）
- * @param {(key:string, value:number)=>void} onChange
- */
+const advancedGridContainers = new Set();
+
 export function buildAdvancedGrid(container, schema, values, onChange) {
   container.textContent = '';
+  container.__i18nSchema = schema;
+  advancedGridContainers.add(container);
   schema.forEach((item) => {
     const row = document.createElement('label');
     row.className = 'range';
+    row.dataset.key = item.key;
     const top = document.createElement('span');
     top.className = 'range__label';
     const out = document.createElement('output');
     out.textContent = String(values[item.key]);
-    top.append(item.label + ' ', out, '%');
+    top.append(tf(item.label) + ' ', out, '%');
     const input = document.createElement('input');
     input.type = 'range';
     input.min = '0';
@@ -166,6 +170,33 @@ export function buildAdvancedGrid(container, schema, values, onChange) {
     });
     row.append(top, input);
     container.append(row);
+  });
+}
+
+/* 言語を切り替えたとき、チップ・くわしい設定のラベルだけを選択状態はそのままに翻訳し直す。
+   チップの選択状態はそもそもDOMの aria-checked にしか無いので、作り直さず書き換えるだけでよい。 */
+export function retranslateDynamicUI() {
+  chipContainers.forEach((container) => {
+    const items = container.__i18nItems;
+    if (!items || !container.isConnected) { chipContainers.delete(container); return; }
+    container.querySelectorAll('.chip').forEach((btn) => {
+      const item = items.find((it) => String(it.value) === btn.dataset.value);
+      if (!item) return;
+      const span = btn.querySelector('span');
+      const small = btn.querySelector('small');
+      if (span) span.textContent = tf(item.label);
+      if (small) small.textContent = tf(item.hint);
+    });
+  });
+  advancedGridContainers.forEach((container) => {
+    const schema = container.__i18nSchema;
+    if (!schema || !container.isConnected) { advancedGridContainers.delete(container); return; }
+    container.querySelectorAll('.range').forEach((row) => {
+      const item = schema.find((it) => it.key === row.dataset.key);
+      if (!item) return;
+      const span = row.querySelector('.range__label');
+      if (span && span.firstChild) span.firstChild.textContent = tf(item.label) + ' ';
+    });
   });
 }
 

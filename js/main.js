@@ -37,8 +37,9 @@ import { FloatingPreview } from './pip.js';
 import {
   buildChips, selectChip, buildSwatches, buildEmojiGrid, clearEmojiSelection,
   setupTabs, showTab, setStatus, showView, fireFlash, renderStrip, markStripUsage,
-  setExportStatus, buildAdvancedGrid
+  setExportStatus, buildAdvancedGrid, retranslateDynamicUI
 } from './ui.js';
+import { getLang, setLang, onLangChange, t, tf, L, applyI18n } from './i18n.js';
 
 /* タブを切り替える。落書きの受け皿やタイトルの移動枠も、タブに合わせて切り替わる */
 function gotoTab(name) {
@@ -88,8 +89,8 @@ const videoRecorder = new VideoRecorder();
 let floatingPreview = null;
 
 const CAPTURE_MODES = [
-  { id: 'burst', label: 'バースト立体撮影' },
-  { id: 'video', label: 'ふつうの動画' }
+  { id: 'burst', label: { en: '3D burst photo', ja: 'バースト立体撮影' } },
+  { id: 'video', label: { en: 'Regular video', ja: 'ふつうの動画' } }
 ];
 
 const state = {
@@ -115,6 +116,7 @@ const state = {
   timerMs: 0,
   countdownCancelled: false,
   captureMode: 'burst',
+  guideId: 'off',
   workKind: 'burst',       // いま加工画面に開いている作品の種類（'burst' | 'video'）
   videoBlob: null,         // 動画作品の元データ（無加工の録画）
   soundOn: true,
@@ -126,11 +128,11 @@ const state = {
 
 function showEnvironment() {
   const bits = [browserLabel()];
-  bits.push(supportsRVFC() ? 'rVFC 対応' : 'rVFC 非対応');
-  if (!videoSupported() || !pickMimeType()) bits.push('動画書き出し不可');
-  if (!storageAvailable()) bits.push('保存不可');
-  if (!isSecure()) bits.push('HTTPSでないためカメラを使えません');
-  $('envNote').textContent = bits.join(' · ');
+  bits.push(supportsRVFC() ? t('env.rvfcSupported') : t('env.rvfcUnsupported'));
+  if (!videoSupported() || !pickMimeType()) bits.push(t('env.noVideoExport'));
+  if (!storageAvailable()) bits.push(t('env.noStorage'));
+  if (!isSecure()) bits.push(t('env.notHttps'));
+  $('envNote').textContent = bits.join(' \u00b7 ');
   $('buildTag').textContent = APP.name + ' v' + APP.version + ' build ' + APP.build;
 }
 
@@ -151,7 +153,10 @@ function setupCameraControls() {
     (ms) => {
       state.durationMs = ms;
       $('shutterText').textContent = (ms / 1000).toFixed(2) + 's';
-      setStatus('撮影時間 ' + (ms / 1000).toFixed(2) + ' 秒。シャッターと同時に、カメラを水平に横へ滑らせてください。');
+      setStatus(L(
+        'Capture time ' + (ms / 1000).toFixed(2) + 's. Slide the camera sideways, level, the moment you tap the shutter.',
+        '撮影時間 ' + (ms / 1000).toFixed(2) + ' 秒。シャッターと同時に、カメラを水平に横へ滑らせてください。'
+      ));
     }
   );
   $('shutterText').textContent = (DEFAULT_DURATION_MS / 1000).toFixed(2) + 's';
@@ -181,7 +186,10 @@ function setupCameraControls() {
     try {
       const s = await camera.start(cameraOptions());
       pool.items = [];
-      setStatus('ストリームを ' + s.width + '×' + s.height + ' / ' + Math.round(s.frameRate || 0) + 'fps に切り替えました。');
+      setStatus(L(
+        'Switched stream to ' + s.width + '\u00d7' + s.height + ' / ' + Math.round(s.frameRate || 0) + 'fps.',
+        'ストリームを ' + s.width + '×' + s.height + ' / ' + Math.round(s.frameRate || 0) + 'fps に切り替えました。'
+      ));
     } catch (err) {
       setStatus(describeCameraError(err, state.captureMode === 'video'), true);
     }
@@ -210,20 +218,23 @@ function setCaptureMode(mode) {
   $('videoModeHint').hidden = mode !== 'video';
 
   if (mode === 'video' && !videoRecordSupported()) {
-    setStatus('このブラウザは音声付き動画の録画に対応していません。', true);
+    setStatus(L('This browser doesn\u2019t support recording video with sound.', 'このブラウザは音声付き動画の録画に対応していません。'), true);
   }
 
   if (camera.stream) {
     camera.start(cameraOptions()).then(() => {
-      if (mode === 'video' && camera.audioFailed) setStatus('マイクを使えません。このまま録画すると音声なしになります。ブラウザのサイト設定でマイクを許可してください。', true);
+      if (mode === 'video' && camera.audioFailed) setStatus(L(
+        'Microphone unavailable. Recording will have no sound. Allow the microphone in your browser\u2019s site settings.',
+        'マイクを使えません。このまま録画すると音声なしになります。ブラウザのサイト設定でマイクを許可してください。'
+      ), true);
     }).catch((err) => {
       setStatus(describeCameraError(err, mode === 'video'), true);
     });
   }
 
   setStatus(mode === 'video'
-    ? 'ふつうの動画モードです。シャッターで録画を開始・停止します。加工は録ったあとにできます。'
-    : '撮影時間を選んで、シャッターと同時にカメラを横へ滑らせてください。');
+    ? L('Regular video mode. Tap the shutter to start and stop recording; you can edit it afterwards.', 'ふつうの動画モードです。シャッターで録画を開始・停止します。加工は録ったあとにできます。')
+    : L('Choose a capture time, then slide the camera sideways the moment you tap the shutter.', '撮影時間を選んで、シャッターと同時にカメラを横へ滑らせてください。'));
 }
 
 function onShutter() {
@@ -235,6 +246,7 @@ function onShutter() {
    box-shadow の巨大な塗りつぶしではなく、4枚の帯で外側を暗くする
    （こちらのほうが、一部ブラウザでの意図しないスクロール発生を避けられる）。 */
 function setGuide(id) {
+  state.guideId = id;
   const guide = GUIDES.find((g) => g.id === id) || GUIDES[0];
   const el = $('frameGuide');
   if (!guide.ratio) {
@@ -261,28 +273,34 @@ function setGuide(id) {
   $('dimLeft').style.cssText = 'top:' + marginV.toFixed(2) + '%;bottom:' + marginV.toFixed(2) + '%;left:0;width:' + marginH.toFixed(2) + '%;';
   $('dimRight').style.cssText = 'top:' + marginV.toFixed(2) + '%;bottom:' + marginV.toFixed(2) + '%;right:0;width:' + marginH.toFixed(2) + '%;';
 
-  $('frameGuideLabel').textContent = guide.label;
+  $('frameGuideLabel').textContent = tf(guide.label);
   el.hidden = false;
 }
 
 async function startCamera() {
   if (!isSecure()) {
-    setStatus('このページは HTTPS で開く必要があります。', true);
+    setStatus(L('This page must be opened over HTTPS.', 'このページは HTTPS で開く必要があります。'), true);
     return;
   }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    setStatus('このブラウザはカメラ入力に対応していません。', true);
+    setStatus(L('This browser doesn\u2019t support camera input.', 'このブラウザはカメラ入力に対応していません。'), true);
     return;
   }
-  $('blockerText').textContent = 'カメラの使用を許可してください…';
+  $('blockerText').textContent = L('Please allow camera access\u2026', 'カメラの使用を許可してください…');
   try {
     const s = await camera.start(cameraOptions());
     $('blocker').hidden = true;
     $('shutter').disabled = false;
     updateFacingLabel();
-    setStatus('準備できました（' + s.width + '×' + s.height + ' / ' + Math.round(s.frameRate || 0) + 'fps）。');
+    setStatus(L(
+      'Ready (' + s.width + '\u00d7' + s.height + ' / ' + Math.round(s.frameRate || 0) + 'fps).',
+      '準備できました（' + s.width + '×' + s.height + ' / ' + Math.round(s.frameRate || 0) + 'fps）。'
+    ));
     if (state.captureMode === 'video' && camera.audioFailed) {
-      setStatus('マイクを使えません。このまま録画すると音声なしになります。ブラウザのサイト設定でマイクを許可してください。', true);
+      setStatus(L(
+        'Microphone unavailable. Recording will have no sound. Allow the microphone in your browser\u2019s site settings.',
+        'マイクを使えません。このまま録画すると音声なしになります。ブラウザのサイト設定でマイクを許可してください。'
+      ), true);
     }
   } catch (err) {
     const msg = describeCameraError(err, state.captureMode === 'video');
@@ -292,7 +310,7 @@ async function startCamera() {
 }
 
 function updateFacingLabel() {
-  $('facingLabel').textContent = camera.facing === 'user' ? 'イン' : 'アウト';
+  $('facingLabel').textContent = camera.facing === 'user' ? L('Front', 'イン') : L('Back', 'アウト');
 }
 
 async function flipCamera() {
@@ -301,7 +319,9 @@ async function flipCamera() {
     await camera.flip();
     pool.items = [];
     updateFacingLabel();
-    setStatus((camera.facing === 'user' ? 'インカメラ' : 'アウトカメラ') + 'に切り替えました。');
+    setStatus(camera.facing === 'user'
+      ? L('Switched to front camera.', 'インカメラに切り替えました。')
+      : L('Switched to back camera.', 'アウトカメラに切り替えました。'));
   } catch (err) {
     setStatus(describeCameraError(err, state.captureMode === 'video'), true);
   }
@@ -346,11 +366,11 @@ async function shoot() {
 
   if (state.timerMs > 0) {
     state.busy = true;
-    setStatus('セルフタイマー作動中…');
+    setStatus(L('Self-timer running\u2026', 'セルフタイマー作動中…'));
     const done = await runCountdown(state.timerMs);
     state.busy = false;
     if (!done) {
-      setStatus('セルフタイマーをキャンセルしました。');
+      setStatus(L('Self-timer cancelled.', 'セルフタイマーをキャンセルしました。'));
       return;
     }
   }
@@ -359,7 +379,7 @@ async function shoot() {
   state.busy = true;
   $('shutter').classList.add('is-busy');
   $('stage').classList.add('is-recording');
-  setStatus('撮影中…');
+  setStatus(L('Capturing\u2026', '撮影中…'));
 
   try {
     const result = await burstCapture({
@@ -371,7 +391,10 @@ async function shoot() {
     fireFlash();
     handleResult(result);
   } catch (err) {
-    setStatus('撮影に失敗しました（' + (err && err.message ? err.message : '不明') + '）。', true);
+    setStatus(L(
+      'Capture failed (' + (err && err.message ? err.message : 'unknown') + ').',
+      '撮影に失敗しました（' + (err && err.message ? err.message : '不明') + '）。'
+    ), true);
   } finally {
     state.busy = false;
     $('shutter').classList.remove('is-busy');
@@ -422,17 +445,17 @@ async function toggleVideoRecording() {
   }
   if (state.busy || !camera.stream) return;
   if (!videoRecordSupported()) {
-    setStatus('このブラウザは音声付き動画の録画に対応していません。', true);
+    setStatus(L('This browser doesn\u2019t support recording video with sound.', 'このブラウザは音声付き動画の録画に対応していません。'), true);
     return;
   }
 
   if (state.timerMs > 0) {
     state.busy = true;
-    setStatus('セルフタイマー作動中…');
+    setStatus(L('Self-timer running\u2026', 'セルフタイマー作動中…'));
     const done = await runCountdown(state.timerMs);
     state.busy = false;
     if (!done) {
-      setStatus('セルフタイマーをキャンセルしました。');
+      setStatus(L('Self-timer cancelled.', 'セルフタイマーをキャンセルしました。'));
       return;
     }
   }
@@ -444,7 +467,7 @@ async function toggleVideoRecording() {
   const ready = await prepareVideoStream();
   state.busy = false;
   if (!ready) {
-    setStatus('カメラが止まっています。カメラを起動し直してください。', true);
+    setStatus(L('The camera has stopped. Please restart it.', 'カメラが止まっています。カメラを起動し直してください。'), true);
     return;
   }
 
@@ -454,8 +477,8 @@ async function toggleVideoRecording() {
   $('recIndicator').hidden = false;
   $('recTime').textContent = '0:00 · 0MB';
   setStatus(hasMic
-    ? '録画中…（音声あり・無加工で録っています。もう一度シャッターで止まります）'
-    : '録画中…（マイクを使えないため、音声なしで録っています。もう一度シャッターで止まります）', !hasMic);
+    ? L('Recording\u2026 (with sound, untouched. Tap the shutter again to stop)', '録画中…（音声あり・無加工で録っています。もう一度シャッターで止まります）')
+    : L('Recording\u2026 (no sound \u2014 microphone unavailable. Tap the shutter again to stop)', '録画中…（マイクを使えないため、音声なしで録っています。もう一度シャッターで止まります）'), !hasMic);
   keepAwake();
 
   const started = videoRecorder.start({
@@ -472,14 +495,14 @@ async function toggleVideoRecording() {
 
   if (!started) {
     endRecordingUI();
-    setStatus('録画を開始できませんでした。', true);
+    setStatus(L('Couldn\u2019t start recording.', '録画を開始できませんでした。'), true);
     return;
   }
   state.busy = true;
 }
 
 async function stopVideoRecording() {
-  setStatus('動画を仕上げています…');
+  setStatus(L('Finishing up the video\u2026', '動画を仕上げています…'));
   const result = await videoRecorder.stop();
   endRecordingUI();
   // 空き容量の見張りが先に自動停止していた場合は、そちらが仕上げを済ませる
@@ -491,10 +514,10 @@ async function stopVideoRecording() {
 async function finishVideoRecording(result, reason) {
   state.busy = false;
   if (!result || !result.blob || !result.blob.size) {
-    setStatus('録画に失敗しました。', true);
+    setStatus(L('Recording failed.', '録画に失敗しました。'), true);
     return;
   }
-  setStatus('動画を保存しています…');
+  setStatus(L('Saving the video\u2026', '動画を保存しています…'));
 
   const record = {
     id: newCaptureId(),
@@ -513,15 +536,27 @@ async function finishVideoRecording(result, reason) {
   const opened = await enterVideoWork(result.blob, record, { isNew: true });
   if (!opened) return;
 
-  const info = formatRecTime(result.durationMs) + '・' + formatMB(result.blob.size);
+  const info = formatRecTime(result.durationMs) + '\u30fb' + formatMB(result.blob.size);
   if (result.audioIssue) {
-    setStatus('録画できました（' + info + '）。ただし録画中にマイクが止まった可能性があります。音が入っているか、再生して確かめてください。', true);
+    setStatus(L(
+      'Recorded (' + info + '). The microphone may have stopped during recording \u2014 please play it back to check the sound.',
+      '録画できました（' + info + '）。ただし録画中にマイクが止まった可能性があります。音が入っているか、再生して確かめてください。'
+    ), true);
   } else if (reason === 'storage') {
-    setStatus('端末の空き容量が少なくなったため、録画を自動で止めました（' + info + '）。ここまでの動画は保存済みです。', true);
+    setStatus(L(
+      'Stopped automatically because storage is running low (' + info + '). What was recorded so far has been saved.',
+      '端末の空き容量が少なくなったため、録画を自動で止めました（' + info + '）。ここまでの動画は保存済みです。'
+    ), true);
   } else if (!state.captureId) {
-    setStatus('録画できました（' + info + '）。端末への保存には失敗しましたが、加工と書き出しはできます。', true);
+    setStatus(L(
+      'Recorded (' + info + '). Couldn\u2019t save it to this device, but you can still edit and export it.',
+      '録画できました（' + info + '）。端末への保存には失敗しましたが、加工と書き出しはできます。'
+    ), true);
   } else {
-    setStatus('録画できました（' + info + '）。フィルター・縦横比・文字を付けられます。');
+    setStatus(L(
+      'Recorded (' + info + '). You can now add filters, aspect ratio, and text.',
+      '録画できました（' + info + '）。フィルター・縦横比・文字を付けられます。'
+    ));
   }
 }
 
@@ -533,7 +568,7 @@ async function enterVideoWork(blob, record, { isNew = false } = {}) {
   try {
     info = await videoPlayer.load(blob, record.durationSec || 0);
   } catch (e) {
-    setStatus('この動画を開けませんでした。', true);
+    setStatus(L('Couldn\u2019t open this video.', 'この動画を開けませんでした。'), true);
     return false;
   }
 
@@ -598,7 +633,7 @@ async function playVideoWork() {
   videoPlayer.mutedByPolicy = false;
   const started = await videoPlayer.play();
   if (started && state.soundOn && workVideo.muted) {
-    setStatus('音は、いちど停止してから「再生」を押すと出ます。');
+    setStatus(L('Sound will play once you stop and tap \u201cPlay\u201d again.', '音は、いちど停止してから「再生」を押すと出ます。'));
   }
 }
 
@@ -641,7 +676,7 @@ function hasWork() {
 
 /* 「結果」アイコンのラベル。今の作品があるかどうかで表示を変える */
 function updateToResultLabel() {
-  $('toResultText').textContent = hasWork() ? '結果' : '作品';
+  $('toResultText').textContent = hasWork() ? L('Result', '結果') : L('Works', '作品');
 }
 
 /* 作品の種類で、加工画面に出す部品を切り替える（data-only="burst" / "video"） */
@@ -681,7 +716,7 @@ function activateBurst() {
 
 function handleResult(result) {
   if (!result.frames.length) {
-    setStatus('フレームを1枚も取得できませんでした。撮影時間を長くして試してください。', true);
+    setStatus(L('Couldn\u2019t capture any frames. Try a longer capture time.', 'フレームを1枚も取得できませんでした。撮影時間を長くして試してください。'), true);
     return;
   }
   activateBurst();
@@ -697,7 +732,10 @@ function handleResult(result) {
   resetExportResult();
 
   updateToResultLabel();
-  setStatus(result.frames.length + ' 枚 / 実測 ' + Math.round(state.metrics.measuredFps) + 'fps。');
+  setStatus(L(
+    result.frames.length + ' frames / measured ' + Math.round(state.metrics.measuredFps) + 'fps.',
+    result.frames.length + ' 枚 / 実測 ' + Math.round(state.metrics.measuredFps) + 'fps。'
+  ));
 
   renderResult();
   goView('result');
@@ -741,7 +779,7 @@ function setupPlayControls() {
       workVideo.muted = !state.soundOn;
       videoPlayer.toggle();
     } else {
-      $('playToggle').textContent = player.toggle() ? '停止' : '再生';
+      $('playToggle').textContent = player.toggle() ? L('Stop', '停止') : L('Play', '再生');
     }
   });
 
@@ -759,11 +797,11 @@ function setupPlayControls() {
     workVideo.muted = !state.soundOn;
   });
   videoPlayer.onStateChange = (on) => {
-    $('playToggle').textContent = on ? '停止' : '再生';
+    $('playToggle').textContent = on ? L('Stop', '停止') : L('Play', '再生');
   };
   videoPlayer.onTime = (t, duration) => updateVideoSeekUI(t, duration);
   videoPlayer.onProblem = (message) => {
-    $('playToggle').textContent = '再生';
+    $('playToggle').textContent = L('Play', '再生');
     setStatus(message, true);
   };
   $('backToCamera').addEventListener('click', () => {
@@ -789,7 +827,7 @@ function setupPlayControls() {
   $('offsetRange').addEventListener('input', (e) => {
     const v = Number(e.target.value) / 100;
     compositor.setOffsetY(v);
-    $('offsetOut').textContent = v < 0.34 ? '上より' : v > 0.66 ? '下より' : '中央';
+    $('offsetOut').textContent = v < 0.34 ? L('Top', '上より') : v > 0.66 ? L('Bottom', '下より') : L('Center', '中央');
     player.refresh();
     resetExportResult();
     scheduleSave();
@@ -799,7 +837,10 @@ function setupPlayControls() {
   videoPlayer.onDraw = updateTitleGuide;
   burstPlayer.onPosChange = (pos, sourceIndex) => {
     $('scrubRange').value = String(pos);
-    $('scrubOut').textContent = (pos + 1) + ' / ' + store.sequence.length + '（元コマ ' + (sourceIndex + 1) + '）';
+    $('scrubOut').textContent = L(
+      (pos + 1) + ' / ' + store.sequence.length + ' (frame ' + (sourceIndex + 1) + ')',
+      (pos + 1) + ' / ' + store.sequence.length + '（元コマ ' + (sourceIndex + 1) + '）'
+    );
     markStripUsage($('strip'), store, sourceIndex);
   };
 }
@@ -816,11 +857,14 @@ function pausePlayback() {
 }
 
 function markPaused() {
-  $('playToggle').textContent = '再生';
+  $('playToggle').textContent = L('Play', '再生');
 }
 
 function syncSequenceUI() {
-  $('stripCount').textContent = store.count + ' 枚中 ' + store.usedIndices.length + ' 枚を使用';
+  $('stripCount').textContent = L(
+    store.usedIndices.length + ' of ' + store.count + ' used',
+    store.count + ' 枚中 ' + store.usedIndices.length + ' 枚を使用'
+  );
   $('scrubRange').max = String(Math.max(0, store.sequence.length - 1));
   burstPlayer.setPos(0);
   markStripUsage($('strip'), store, store.sourceIndexAt(0));
@@ -842,7 +886,7 @@ function renderResult() {
   updateOffsetAvailability();
   syncSequenceUI();
   burstPlayer.play();
-  $('playToggle').textContent = '停止';
+  $('playToggle').textContent = L('Stop', '停止');
 }
 
 /* ---------- 加工 ---------- */
@@ -887,7 +931,7 @@ function setupLookControls() {
     const open = $('advancedPanel').hidden;
     $('advancedPanel').hidden = !open;
     $('advancedToggle').setAttribute('aria-expanded', String(open));
-    $('advancedToggle').textContent = open ? 'かんたん設定に戻す' : 'くわしく調整する';
+    $('advancedToggle').textContent = open ? L('Back to simple mode', 'かんたん設定に戻す') : L('Fine-tune', 'くわしく調整する');
     if (open) renderAdvancedGrid();
     $('cinemaVariantField').hidden = !(open && compositor.filterId === 'cinema');
   });
@@ -1126,7 +1170,7 @@ function syncFilterDependentUI() {
   if (!hasSchema) {
     $('advancedPanel').hidden = true;
     $('advancedToggle').setAttribute('aria-expanded', 'false');
-    $('advancedToggle').textContent = 'くわしく調整する';
+    $('advancedToggle').textContent = L('Fine-tune', 'くわしく調整する');
   } else if (!$('advancedPanel').hidden) {
     renderAdvancedGrid();
   }
@@ -1160,7 +1204,7 @@ function syncUIFromCompositor() {
   $('crtRange').value = String(Math.round(compositor.crtStrength * 100));
   $('crtOut').textContent = $('crtRange').value;
   $('offsetRange').value = String(Math.round(compositor.offsetY * 100));
-  $('offsetOut').textContent = compositor.offsetY < 0.34 ? '上より' : compositor.offsetY > 0.66 ? '下より' : '中央';
+  $('offsetOut').textContent = compositor.offsetY < 0.34 ? L('Top', '上より') : compositor.offsetY > 0.66 ? L('Bottom', '下より') : L('Center', '中央');
   $('stampToggle').checked = compositor.stamp.enabled;
   $('stampText').value = compositor.stamp.text || '';
 
@@ -1324,22 +1368,22 @@ function setupExportControls() {
     const text = toText(state.metrics);
     try {
       await navigator.clipboard.writeText(text);
-      $('copyMetrics').textContent = 'コピーしました';
-      setTimeout(() => { $('copyMetrics').textContent = '計測結果をコピー'; }, 1600);
+      $('copyMetrics').textContent = L('Copied', 'コピーしました');
+      setTimeout(() => { $('copyMetrics').textContent = t('data.copy'); }, 1600);
     } catch (e) {
-      window.prompt('この内容をコピーしてください', text);
+      window.prompt(L('Please copy this text', 'この内容をコピーしてください'), text);
     }
   });
 }
 
 function updateFormatHint() {
   const f = EXPORT_FORMATS.find((x) => x.id === state.format);
-  let hint = f ? f.hint : '';
+  let hint = f ? tf(f.hint) : '';
   if (state.format === 'mp4' && !pickMimeType()) {
-    hint = 'このブラウザでは動画を書き出せません。GIFを選んでください。';
+    hint = L('This browser can\u2019t export video. Please choose GIF instead.', 'このブラウザでは動画を書き出せません。GIFを選んでください。');
   }
   if (state.workKind === 'video' && state.format === 'mp4') {
-    hint += '（元の動画と同じ時間をかけて撮り直すように書き出します）';
+    hint += L(' (re-recorded to take the same time as the original video)', '（元の動画と同じ時間をかけて撮り直すように書き出します）');
   }
   $('formatHint').textContent = hint;
   $('durationExportChips').classList.toggle('is-disabled', state.format === 'gif' || state.format === 'photo');
@@ -1360,23 +1404,32 @@ function updateLoopInfo() {
   }
   if (state.format === 'photo') {
     $('loopInfo').textContent = isVideo
-      ? 'いま画面に出ているコマ1枚を、写真として保存します（動画はそのまま残ります）。'
-      : 'いま画面に出ているコマ1枚を保存します（動く作品はそのまま残ります）。';
+      ? L('Saves the frame currently on screen as a photo (the video itself is unchanged).', 'いま画面に出ているコマ1枚を、写真として保存します（動画はそのまま残ります）。')
+      : L('Saves the frame currently on screen (the moving work itself is unchanged).', 'いま画面に出ているコマ1枚を保存します（動く作品はそのまま残ります）。');
     return;
   }
   if (isVideo) {
-    $('loopInfo').textContent = '動画は長さの指定なしで、最初から最後まで書き出します（' + fmtClock(videoPlayer.duration) +
-      '）。書き出しは実時間で進むので、同じだけ時間がかかります。終わるまで、この画面を開いたままにしてください。';
+    $('loopInfo').textContent = L(
+      'The video has no set length \u2014 it exports start to finish (' + fmtClock(videoPlayer.duration) + '). Export runs in real time, so it takes just as long. Please keep this screen open until it finishes.',
+      '動画は長さの指定なしで、最初から最後まで書き出します（' + fmtClock(videoPlayer.duration) +
+      '）。書き出しは実時間で進むので、同じだけ時間がかかります。終わるまで、この画面を開いたままにしてください。'
+    );
     return;
   }
   const loopMs = (store.sequence.length / (burstPlayer.fps || 10)) * 1000;
   if (state.format === 'gif') {
-    $('loopInfo').textContent = 'GIFは長さの指定なしで、無限にループします（1周 ' + Math.round(loopMs) + ' ms）。';
+    $('loopInfo').textContent = L(
+      'A GIF has no set length \u2014 it loops forever (one loop is ' + Math.round(loopMs) + ' ms).',
+      'GIFは長さの指定なしで、無限にループします（1周 ' + Math.round(loopMs) + ' ms）。'
+    );
     return;
   }
   const n = loopCount();
-  $('loopInfo').textContent = '1周 ' + Math.round(loopMs) + ' ms を ' + n + '回くり返して、約 ' +
-    (Math.round(loopMs * n) / 1000).toFixed(1) + ' 秒にします。';
+  $('loopInfo').textContent = L(
+    'Repeats a ' + Math.round(loopMs) + ' ms loop ' + n + ' times, about ' + (Math.round(loopMs * n) / 1000).toFixed(1) + 's total.',
+    '1周 ' + Math.round(loopMs) + ' ms を ' + n + '回くり返して、約 ' +
+    (Math.round(loopMs * n) / 1000).toFixed(1) + ' 秒にします。'
+  );
 }
 
 function resetExportResult() {
@@ -1461,18 +1514,18 @@ async function exportVideoWork(box, onProgress) {
     }
   };
 
-  setExportStatus('動画を準備しています…', 0.02);
+  setExportStatus(L('Preparing the video\u2026', '動画を準備しています…'), 0.02);
   try {
     const out = await attempt(true);
     let note = '';
-    if (out.silent) note = '（音声は写せず、無音で書き出しました）';
-    else if (!out.hadAudioTrack) note = '（元の動画に音声が無かったか、取り出せませんでした）';
+    if (out.silent) note = L(' (couldn\u2019t carry over audio \u2014 exported without sound)', '（音声は写せず、無音で書き出しました）');
+    else if (!out.hadAudioTrack) note = L(' (the original video had no audio, or it couldn\u2019t be read)', '（元の動画に音声が無かったか、取り出せませんでした）');
     return { blob: out.blob, note };
   } catch (err) {
     if (!err || !err.stall || (state.exportAbort && state.exportAbort.aborted)) throw err;
-    setExportStatus('音声つきの書き出しが進まなかったため、音なしでやり直します…', 0.02);
+    setExportStatus(L('Export with sound stalled \u2014 retrying without sound\u2026', '音声つきの書き出しが進まなかったため、音なしでやり直します…'), 0.02);
     const out = await attempt(false);
-    return { blob: out.blob, note: '（音声を写せなかったため、無音で書き出しました）' };
+    return { blob: out.blob, note: L(' (couldn\u2019t carry over audio \u2014 exported without sound)', '（音声を写せなかったため、無音で書き出しました）') };
   }
 }
 
@@ -1492,7 +1545,7 @@ async function runExport() {
   try {
     let blob, name;
     if (state.format === 'photo') {
-      setExportStatus('静止画を作っています…', 0.3);
+      setExportStatus(L('Creating the photo\u2026', '静止画を作っています…'), 0.3);
       const canvas = document.createElement('canvas');
       canvas.width = box.width;
       canvas.height = box.height;
@@ -1504,7 +1557,7 @@ async function runExport() {
         makeRenderer(box.framed)(ctx, index, burstPlayer.timeSec, box.width, box.height);
       }
       blob = await canvasToBlob(canvas, 'image/jpeg', 0.92);
-      if (!blob) throw new Error('静止画の書き出しに失敗しました。');
+      if (!blob) throw new Error(L('Couldn\u2019t create the photo.', '静止画の書き出しに失敗しました。'));
       name = timestampName('jpg');
     } else if (isVideo) {
       // 動画作品。元動画を実時間で再生しながら、加工した絵と音を撮り直す
@@ -1516,14 +1569,14 @@ async function runExport() {
       silentNote = out.note;
       name = timestampName(extensionFor(pickMimeType()));
     } else if (state.format === 'gif') {
-      setExportStatus('GIFを作っています…', 0.05);
+      setExportStatus(L('Creating the GIF\u2026', 'GIFを作っています…'), 0.05);
       blob = await encodeGIF({
         render: makeRenderer(box.framed), sequence: store.sequence, fps: burstPlayer.fps,
         width: box.width, height: box.height, onProgress
       });
       name = timestampName('gif');
     } else {
-      setExportStatus('動画を録っています…', 0.05);
+      setExportStatus(L('Recording the video\u2026', '動画を録っています…'), 0.05);
       blob = await encodeVideo({
         render: makeRenderer(box.framed), sequence: store.sequence, fps: burstPlayer.fps,
         width: box.width, height: box.height, loops: loopCount(), onProgress
@@ -1536,10 +1589,14 @@ async function runExport() {
     attachDownload($('downloadLink'), blob, name);
     $('exportResult').hidden = false;
     const kb = Math.round(blob.size / 1024);
-    setExportStatus('できました（' + box.width + '×' + box.height + ' / ' +
-      (kb > 1024 ? (kb / 1024).toFixed(1) + 'MB' : kb + 'KB') + '）' + silentNote + '。共有から写真に保存できます。');
+    setExportStatus(L(
+      'Done (' + box.width + '\u00d7' + box.height + ' / ' +
+      (kb > 1024 ? (kb / 1024).toFixed(1) + 'MB' : kb + 'KB') + ')' + silentNote + '. You can share it to save to Photos.',
+      'できました（' + box.width + '×' + box.height + ' / ' +
+      (kb > 1024 ? (kb / 1024).toFixed(1) + 'MB' : kb + 'KB') + '）' + silentNote + '。共有から写真に保存できます。'
+    ));
   } catch (err) {
-    setExportStatus(err && err.message ? err.message : '書き出しに失敗しました。サイズを小さくして試してください。');
+    setExportStatus(err && err.message ? err.message : L('Export failed. Try a smaller size.', '書き出しに失敗しました。サイズを小さくして試してください。'));
   } finally {
     state.exporting = false;
     state.exportAbort = null;
@@ -1558,9 +1615,9 @@ async function doShare() {
   if (!state.lastBlob) return;
   const result = await shareFile(state.lastBlob, state.lastName);
   if (result === 'unsupported') {
-    setExportStatus('このブラウザでは共有シートを開けません。下のダウンロードから保存してください。');
+    setExportStatus(L('This browser can\u2019t open the share sheet. Please save using Download below.', 'このブラウザでは共有シートを開けません。下のダウンロードから保存してください。'));
   } else if (result === 'shared') {
-    setExportStatus('共有シートに渡しました。');
+    setExportStatus(L('Handed off to the share sheet.', '共有シートに渡しました。'));
   }
 }
 
@@ -1635,14 +1692,14 @@ async function backfillSizes(items) {
 
 async function refreshLibrary() {
   if (!storageAvailable()) {
-    $('libNote').textContent = 'このブラウザでは作品を保存できません。';
+    $('libNote').textContent = L('This browser can\u2019t save works.', 'このブラウザでは作品を保存できません。');
     return;
   }
   let items = [];
   try {
     items = await listCaptures();
   } catch (e) {
-    $('libNote').textContent = '保存領域を開けませんでした。';
+    $('libNote').textContent = L('Couldn\u2019t open storage.', '保存領域を開けませんでした。');
     return;
   }
   renderLibrary($('library'), items, {
@@ -1652,9 +1709,12 @@ async function refreshLibrary() {
   });
   backfillSizes(items);
   const usage = await estimateUsage();
-  const base = items.length + ' 件。この端末の中だけに保存され、どこにも送信されません。';
+  const base = L(
+    items.length + ' item(s). Saved on this device only \u2014 nothing is sent anywhere.',
+    items.length + ' 件。この端末の中だけに保存され、どこにも送信されません。'
+  );
   $('libNote').textContent = usage && usage.usage
-    ? base + '（使用中 ' + (usage.usage / 1048576).toFixed(1) + 'MB）'
+    ? base + L(' (using ' + (usage.usage / 1048576).toFixed(1) + 'MB)', '（使用中 ' + (usage.usage / 1048576).toFixed(1) + 'MB）')
     : base;
 }
 
@@ -1668,7 +1728,10 @@ async function openCapture(id) {
       if (!videoBlobs.length) return;
       const opened = await enterVideoWork(videoBlobs[0], record);
       if (opened && !record.editable) {
-        setStatus('旧バージョンで録った動画です。フィルターは録画時に焼き込み済みなので、加工は重ねがけになります。');
+        setStatus(L(
+          'This video was recorded with an older version. Its filter was baked in at recording time, so anything you add now will stack on top.',
+          '旧バージョンで録った動画です。フィルターは録画時に焼き込み済みなので、加工は重ねがけになります。'
+        ));
       }
       return;
     }
@@ -1730,12 +1793,12 @@ async function openCapture(id) {
     updateToResultLabel();
     refreshLibrary();
   } catch (e) {
-    $('libNote').textContent = 'この作品を開けませんでした。';
+    $('libNote').textContent = L('Couldn\u2019t open this work.', 'この作品を開けませんでした。');
   }
 }
 
 async function removeCapture(id) {
-  if (!window.confirm('この作品を削除します。元に戻せません。')) return;
+  if (!window.confirm(L('This will delete the work. This can\u2019t be undone.', 'この作品を削除します。元に戻せません。'))) return;
   try {
     await deleteCapture(id);
     if (state.captureId === id) state.captureId = null;
@@ -1743,8 +1806,43 @@ async function removeCapture(id) {
   } catch (e) { /* 失敗しても一覧はそのまま */ }
 }
 
+/* ---------- 言語切り替え ---------- */
+
+function setupLanguageSwitch() {
+  const wrap = $('langSwitch');
+  wrap.querySelectorAll('.langSwitch__btn').forEach((btn) => {
+    btn.setAttribute('aria-pressed', btn.dataset.lang === getLang() ? 'true' : 'false');
+    btn.addEventListener('click', () => setLang(btn.dataset.lang));
+  });
+  onLangChange((lang) => {
+    wrap.querySelectorAll('.langSwitch__btn').forEach((btn) => {
+      btn.setAttribute('aria-pressed', btn.dataset.lang === lang ? 'true' : 'false');
+    });
+    // 静的なUIテキストは applyI18n（setLang内で呼ばれる）が処理する。
+    // ここでは、チップのラベルや、現在の状態から組み立てている動的な文字だけを訳し直す。
+    retranslateDynamicUI();
+    showEnvironment();
+    updateToResultLabel();
+    updateFacingLabel();
+    setGuide(state.guideId);
+    if (compositor.filterId) syncFilterDependentUI();
+    $('offsetOut').textContent = compositor.offsetY < 0.34 ? L('Top', '上より') : compositor.offsetY > 0.66 ? L('Bottom', '下より') : L('Center', '中央');
+    $('advancedToggle').textContent = $('advancedPanel').hidden ? L('Fine-tune', 'くわしく調整する') : L('Back to simple mode', 'かんたん設定に戻す');
+    if (state.workKind === 'video') {
+      $('playToggle').textContent = videoPlayer.playing ? L('Stop', '停止') : L('Play', '再生');
+    } else {
+      $('playToggle').textContent = burstPlayer.playing ? L('Stop', '停止') : L('Play', '再生');
+    }
+    updateFormatHint();
+    updateLoopInfo();
+    if (state.tab === 'lib') refreshLibrary();
+  });
+}
+
 /* ---------- 起動 ---------- */
 
+setupLanguageSwitch();
+applyI18n();
 showEnvironment();
 setupCameraControls();
 setupPlayControls();

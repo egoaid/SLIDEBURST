@@ -1,5 +1,7 @@
 /* library.js — 端末に貯めた作品の一覧 */
 
+import { L } from './i18n.js';
+
 const fmtDate = (ms) => {
   const d = new Date(ms);
   const p = (n) => String(n).padStart(2, '0');
@@ -25,7 +27,7 @@ export function renderLibrary(container, items, { onOpen, onDelete, currentId })
   if (!items.length) {
     const empty = document.createElement('p');
     empty.className = 'hint';
-    empty.textContent = 'まだ作品がありません。撮影すると、この端末の中にだけ保存されます。';
+    empty.textContent = L('No works yet. Once you shoot something, it\u2019s saved on this device only.', 'まだ作品がありません。撮影すると、この端末の中にだけ保存されます。');
     container.append(empty);
     return;
   }
@@ -58,23 +60,22 @@ export function renderLibrary(container, items, { onOpen, onDelete, currentId })
     const meta = document.createElement('span');
     meta.className = 'libItem__meta';
     const sizeText = item.sizeBytes ? ' · ' + formatBytes(item.sizeBytes) : '';
+    const durationText = item.durationSec ? item.durationSec.toFixed(1) + L('s', '秒') : '';
+    const filterText = item.settings && item.settings.filterId && item.settings.filterId !== 'none' ? ' \u00b7 ' + item.settings.filterId : '';
     meta.innerHTML = item.kind === 'video'
       ? '<b>' + fmtDate(item.createdAt) + '</b>' +
-        '<small>動画 · ' + (item.durationSec ? item.durationSec.toFixed(1) + '秒' : '') +
-        (item.settings && item.settings.filterId && item.settings.filterId !== 'none' ? ' · ' + item.settings.filterId : '') +
-        sizeText + '</small>'
+        '<small>' + L('Video', '動画') + ' \u00b7 ' + durationText + filterText + sizeText + '</small>'
       : '<b>' + fmtDate(item.createdAt) + '</b>' +
-        '<small>' + item.frameCount + 'コマ · ' + item.width + '×' + item.height +
-        (item.settings && item.settings.filterId && item.settings.filterId !== 'none' ? ' · ' + item.settings.filterId : '') +
-        sizeText + '</small>';
+        '<small>' + L(item.frameCount + ' frames \u00b7 ', item.frameCount + 'コマ · ') + item.width + '\u00d7' + item.height +
+        filterText + sizeText + '</small>';
     open.append(meta);
     open.addEventListener('click', () => onOpen(item.id));
 
     const del = document.createElement('button');
     del.type = 'button';
     del.className = 'libItem__delete';
-    del.setAttribute('aria-label', 'この作品を削除');
-    del.textContent = '削除';
+    del.setAttribute('aria-label', L('Delete this work', 'この作品を削除'));
+    del.textContent = L('Delete', '削除');
     del.addEventListener('click', () => onDelete(item.id));
 
     card.append(open, del);

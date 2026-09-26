@@ -3,11 +3,11 @@
    オフラインのPWAなのでWebフォントは読み込まず、OS標準のフォントだけで組む。 */
 
 export const OSD_FONTS = [
-  { id: 'gothic',  label: 'ゴシック太字',   stack: "'Hiragino Sans', 'Yu Gothic', system-ui, sans-serif", weight: 900, tracking: 0.01 },
-  { id: 'rounded', label: '丸ゴシック',     stack: "'Hiragino Maru Gothic ProN', 'UD Digi Kyokasho NK-R', 'Yu Gothic', sans-serif", weight: 700, tracking: 0.02 },
-  { id: 'mincho',  label: '映画字幕風（明朝）', stack: "'Hiragino Mincho ProN', 'Yu Mincho', serif", weight: 700, tracking: 0 },
-  { id: 'block',   label: 'VHSブロック体',  stack: "'Arial Black', 'Hiragino Sans', sans-serif", weight: 900, tracking: 0.06 },
-  { id: 'mono',    label: 'デジタル風',     stack: "'Courier New', 'Osaka-Mono', monospace", weight: 700, tracking: 0.08 }
+  { id: 'gothic',  label: { en: 'Bold Gothic', ja: 'ゴシック太字' },   stack: "'Hiragino Sans', 'Yu Gothic', system-ui, sans-serif", weight: 900, tracking: 0.01 },
+  { id: 'rounded', label: { en: 'Rounded Gothic', ja: '丸ゴシック' },     stack: "'Hiragino Maru Gothic ProN', 'UD Digi Kyokasho NK-R', 'Yu Gothic', sans-serif", weight: 700, tracking: 0.02 },
+  { id: 'mincho',  label: { en: 'Cinema Subtitle (Serif)', ja: '映画字幕風（明朝）' }, stack: "'Hiragino Mincho ProN', 'Yu Mincho', serif", weight: 700, tracking: 0 },
+  { id: 'block',   label: { en: 'VHS Block', ja: 'VHSブロック体' },  stack: "'Arial Black', 'Hiragino Sans', sans-serif", weight: 900, tracking: 0.06 },
+  { id: 'mono',    label: { en: 'Digital', ja: 'デジタル風' },     stack: "'Courier New', 'Osaka-Mono', monospace", weight: 700, tracking: 0.08 }
 ];
 
 function fontOf(id) {

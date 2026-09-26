@@ -1,6 +1,8 @@
 /* export-gif.js — 無限ループするGIF89aを自前で書き出す
    外部ライブラリを使わずに、メディアンカット減色 + LZW で組み立てる。 */
 
+import { L } from './i18n.js';
+
 class ByteWriter {
   constructor() {
     this.buf = new Uint8Array(1 << 16);
@@ -203,13 +205,13 @@ export async function encodeGIF({ render, sequence, fps, width, height, onProgre
   for (let i = 0; i < sequence.length; i++) {
     render(ctx, sequence[i], i / fps, width, height);
     buffers.push(ctx.getImageData(0, 0, width, height).data);
-    if (onProgress) onProgress(0.1 + (0.25 * (i + 1)) / sequence.length, 'コマを準備中');
+    if (onProgress) onProgress(0.1 + (0.25 * (i + 1)) / sequence.length, L('Preparing frames', 'コマを準備中'));
     await sleep(0);
   }
 
   const palette = buildPalette(buffers);
   const map = makeMapper(palette);
-  if (onProgress) onProgress(0.45, '色を整理中');
+  if (onProgress) onProgress(0.45, L('Organizing colors', '色を整理中'));
   await sleep(0);
 
   const indexed = [];
@@ -222,7 +224,7 @@ export async function encodeGIF({ render, sequence, fps, width, height, onProgre
     indexed.push(px);
     await sleep(0);
   }
-  if (onProgress) onProgress(0.6, '書き出し中');
+  if (onProgress) onProgress(0.6, L('Exporting', '書き出し中'));
 
   const w = new ByteWriter();
   w.ascii('GIF89a');
@@ -253,7 +255,7 @@ export async function encodeGIF({ render, sequence, fps, width, height, onProgre
     w.byte(0);
     w.byte(8);
     writeSubBlocks(w, lzwEncode(indexed[i], 8));
-    if (onProgress) onProgress(0.6 + (0.4 * (i + 1)) / sequence.length, '書き出し中');
+    if (onProgress) onProgress(0.6 + (0.4 * (i + 1)) / sequence.length, L('Exporting', '書き出し中'));
     await sleep(0);
   }
   w.byte(0x3b);

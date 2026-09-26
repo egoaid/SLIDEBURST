@@ -1,6 +1,7 @@
 /* camera.js — getUserMedia とストリーム管理 */
 
 import { STREAM_MODES, VIDEO_FRAME_RATE } from './config.js';
+import { L } from './i18n.js';
 
 export class Camera {
   constructor(videoEl) {
@@ -24,7 +25,7 @@ export class Camera {
 
   label() {
     const t = this.track;
-    return t ? (t.label || '名称なし') : '';
+    return t ? (t.label || L('Unnamed', '名称なし')) : '';
   }
 
   /**
@@ -118,18 +119,30 @@ export class Camera {
   }
 }
 
-/* 権限エラーを日本語の対処法に変換する */
+/* 権限エラーを対処法つきの文章に変換する */
 export function describeCameraError(err, withAudio = false) {
   const name = err && err.name ? err.name : '';
-  const device = withAudio ? 'カメラとマイク' : 'カメラ';
+  const device = withAudio ? L('the camera and microphone', 'カメラとマイク') : L('the camera', 'カメラ');
   if (name === 'NotAllowedError' || name === 'SecurityError') {
-    return device + 'の使用が許可されませんでした。ブラウザのサイト設定で許可してから、もう一度起動してください。';
+    return L(
+      'Access to ' + device + ' was not allowed. Please allow it in your browser\u2019s site settings, then start again.',
+      device + 'の使用が許可されませんでした。ブラウザのサイト設定で許可してから、もう一度起動してください。'
+    );
   }
   if (name === 'NotFoundError' || name === 'OverconstrainedError') {
-    return '使用できる' + device + 'が見つかりませんでした。別のカメラに切り替えるか、ストリーム設定を変えて試してください。';
+    return L(
+      'Couldn\u2019t find a usable ' + device + '. Try switching to a different camera, or change the stream settings.',
+      '使用できる' + device + 'が見つかりませんでした。別のカメラに切り替えるか、ストリーム設定を変えて試してください。'
+    );
   }
   if (name === 'NotReadableError') {
-    return device + 'を他のアプリが使用中です。他のアプリを閉じてから、もう一度起動してください。';
+    return L(
+      device.charAt(0).toUpperCase() + device.slice(1) + ' is in use by another app. Please close it and try again.',
+      device + 'を他のアプリが使用中です。他のアプリを閉じてから、もう一度起動してください。'
+    );
   }
-  return device + 'を起動できませんでした（' + (name || '不明なエラー') + '）。ページを再読み込みして試してください。';
+  return L(
+    'Couldn\u2019t start ' + device + ' (' + (name || 'unknown error') + '). Please reload the page and try again.',
+    device + 'を起動できませんでした（' + (name || '不明なエラー') + '）。ページを再読み込みして試してください。'
+  );
 }

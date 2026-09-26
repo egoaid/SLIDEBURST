@@ -3,73 +3,104 @@
    どちらも同じパラメータ（0〜150%）を使うので、値の意味は一貫している。 */
 
 export const FILTERS = [
-  { id: 'none',   label: 'なし' },
+  { id: 'none',   label: { en: 'None', ja: 'なし' } },
   { id: 'hi8',    label: 'Hi8' },
   { id: 'vhs',    label: 'VHS' },
   { id: 'film8',  label: '8mm' },
-  { id: 'pop',    label: 'ガラケー' },
-  { id: 'cinema', label: '映画' },
-  { id: 'mono',   label: 'モノクロ' }
+  { id: 'pop',    label: { en: 'Feature phone', ja: 'ガラケー' } },
+  { id: 'cinema', label: { en: 'Cinema', ja: '映画' } },
+  { id: 'mono',   label: { en: 'Monochrome', ja: 'モノクロ' } }
 ];
+
+/* パラメータ名の共有辞書。同じ概念（彩度・コントラストなど）が複数のフィルターで使われるため、
+   ここでまとめて {en, ja} を持たせ、各フィルターのスキーマからは参照するだけにする。 */
+const P = {
+  fade:          { en: 'Fade', ja: '色あせ' },
+  saturation:    { en: 'Saturation', ja: '彩度' },
+  contrast:      { en: 'Contrast', ja: 'コントラスト' },
+  yellow:        { en: 'Yellow tint', ja: '黄色味' },
+  tapeNoiseHi8:  { en: 'Tape noise', ja: 'テープノイズ' },
+  ccdSoftness:   { en: 'CCD softness', ja: 'CCDの柔らかさ' },
+  scanlines:     { en: 'Scanlines', ja: 'スキャンライン' },
+  colorBleed:    { en: 'Color bleed', ja: '色にじみ' },
+  flicker:       { en: 'Flicker', ja: 'フリッカー' },
+  instability:   { en: 'Screen instability', ja: '画面の不安定さ' },
+  chromaAberr:   { en: 'Chromatic aberration', ja: '色収差' },
+  noiseVHS:      { en: 'Noise', ja: 'ノイズ' },
+  softFocus:     { en: 'Soft focus', ja: 'ソフトフォーカス' },
+  tracking:      { en: 'Tracking distortion', ja: 'トラッキング乱れ' },
+  grain:         { en: 'Grain', ja: '粒状感' },
+  shake:         { en: 'Shake', ja: '揺れ' },
+  exposure:      { en: 'Exposure unevenness', ja: '露出ムラ' },
+  dust:          { en: 'Dust & scratches', ja: 'ゴミ・傷' },
+  resolution:    { en: 'Resolution feel', ja: '解像感' },
+  sharpen:       { en: 'Edge sharpening', ja: '輪郭強調' },
+  crush:         { en: 'Clipping', ja: '白飛び・黒つぶれ' },
+  whiteBalance:  { en: 'White balance drift', ja: 'ホワイトバランスの狂い' },
+  noiseDigital:  { en: 'Digital noise', ja: 'デジタルノイズ' },
+  warmth:        { en: 'Color temperature', ja: '色温度' },
+  glow:          { en: 'Glow', ja: 'グロー' },
+  vignette:      { en: 'Vignette', ja: '周辺減光' }
+};
 
 /* フィルターごとの、くわしい設定の項目。順番は画面に出る順そのまま */
 export const PARAM_SCHEMAS = {
   hi8: [
-    { key: 'fade',        label: '色あせ' },
-    { key: 'saturation',  label: '彩度' },
-    { key: 'contrast',    label: 'コントラスト' },
-    { key: 'yellow',      label: '黄色味' },
-    { key: 'tapeNoise',   label: 'テープノイズ' },
-    { key: 'softFocus',   label: 'CCDの柔らかさ' },
-    { key: 'scanlines',   label: 'スキャンライン' },
-    { key: 'chroma',      label: '色にじみ' },
-    { key: 'flicker',     label: 'フリッカー' },
-    { key: 'instability', label: '画面の不安定さ' }
+    { key: 'fade',        label: P.fade },
+    { key: 'saturation',  label: P.saturation },
+    { key: 'contrast',    label: P.contrast },
+    { key: 'yellow',      label: P.yellow },
+    { key: 'tapeNoise',   label: P.tapeNoiseHi8 },
+    { key: 'softFocus',   label: P.ccdSoftness },
+    { key: 'scanlines',   label: P.scanlines },
+    { key: 'chroma',      label: P.colorBleed },
+    { key: 'flicker',     label: P.flicker },
+    { key: 'instability', label: P.instability }
   ],
   vhs: [
-    { key: 'saturation',  label: '彩度' },
-    { key: 'contrast',    label: 'コントラスト' },
-    { key: 'chroma',      label: '色収差' },
-    { key: 'tapeNoise',   label: 'ノイズ' },
-    { key: 'scanlines',   label: 'スキャンライン' },
-    { key: 'softFocus',   label: 'ソフトフォーカス' },
-    { key: 'tracking',    label: 'トラッキング乱れ' },
-    { key: 'instability', label: '画面の不安定さ' }
+    { key: 'saturation',  label: P.saturation },
+    { key: 'contrast',    label: P.contrast },
+    { key: 'chroma',      label: P.chromaAberr },
+    { key: 'tapeNoise',   label: P.noiseVHS },
+    { key: 'scanlines',   label: P.scanlines },
+    { key: 'softFocus',   label: P.softFocus },
+    { key: 'tracking',    label: P.tracking },
+    { key: 'instability', label: P.instability }
   ],
   film8: [
-    { key: 'grain',       label: '粒状感' },
-    { key: 'instability', label: '揺れ' },
-    { key: 'softFocus',   label: 'ソフトフォーカス' },
-    { key: 'exposure',    label: '露出ムラ' },
-    { key: 'flicker',     label: 'フリッカー' },
-    { key: 'fade',        label: '色あせ' },
-    { key: 'dust',        label: 'ゴミ・傷' },
-    { key: 'saturation',  label: '彩度' }
+    { key: 'grain',       label: P.grain },
+    { key: 'instability', label: P.shake },
+    { key: 'softFocus',   label: P.softFocus },
+    { key: 'exposure',    label: P.exposure },
+    { key: 'flicker',     label: P.flicker },
+    { key: 'fade',        label: P.fade },
+    { key: 'dust',        label: P.dust },
+    { key: 'saturation',  label: P.saturation }
   ],
   pop: [
-    { key: 'resolution',    label: '解像感' },
-    { key: 'sharpen',       label: '輪郭強調' },
-    { key: 'crush',         label: '白飛び・黒つぶれ' },
-    { key: 'whiteBalance',  label: 'ホワイトバランスの狂い' },
-    { key: 'saturation',    label: '彩度' },
-    { key: 'noise',         label: 'デジタルノイズ' }
+    { key: 'resolution',    label: P.resolution },
+    { key: 'sharpen',       label: P.sharpen },
+    { key: 'crush',         label: P.crush },
+    { key: 'whiteBalance',  label: P.whiteBalance },
+    { key: 'saturation',    label: P.saturation },
+    { key: 'noise',         label: P.noiseDigital }
   ],
   cinema: [
-    { key: 'saturation', label: '彩度' },
-    { key: 'contrast',   label: 'コントラスト' },
-    { key: 'warmth',     label: '色温度' },
-    { key: 'glow',       label: 'グロー' },
-    { key: 'grain',      label: '粒状感' },
-    { key: 'vignette',   label: '周辺減光' },
-    { key: 'flicker',    label: 'フリッカー' }
+    { key: 'saturation', label: P.saturation },
+    { key: 'contrast',   label: P.contrast },
+    { key: 'warmth',     label: P.warmth },
+    { key: 'glow',       label: P.glow },
+    { key: 'grain',      label: P.grain },
+    { key: 'vignette',   label: P.vignette },
+    { key: 'flicker',    label: P.flicker }
   ],
   mono: [
-    { key: 'contrast',    label: 'コントラスト' },
-    { key: 'grain',       label: '粒状感' },
-    { key: 'flicker',     label: 'フリッカー' },
-    { key: 'instability', label: '揺れ' },
-    { key: 'vignette',    label: '周辺減光' },
-    { key: 'softFocus',   label: 'ソフトフォーカス' }
+    { key: 'contrast',    label: P.contrast },
+    { key: 'grain',       label: P.grain },
+    { key: 'flicker',     label: P.flicker },
+    { key: 'instability', label: P.shake },
+    { key: 'vignette',    label: P.vignette },
+    { key: 'softFocus',   label: P.softFocus }
   ]
 };
 
@@ -85,8 +116,8 @@ export const PARAM_SCHEMAS = {
    ここではその「入力が明るいほど出力も明るい」という最終的な単調増加の関係だけを再現し、
    途中の反転工程そのものはモデル化していない。 */
 export const CINEMA_VARIANTS = [
-  { id: 'technicolor', label: 'テクニカラー' },
-  { id: 'agfa',         label: 'アグファカラー' }
+  { id: 'technicolor', label: { en: 'Technicolor', ja: 'テクニカラー' } },
+  { id: 'agfa',         label: { en: 'Agfacolor', ja: 'アグファカラー' } }
 ];
 
 const CINEMA_MODELS = {

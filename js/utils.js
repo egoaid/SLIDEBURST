@@ -47,6 +47,8 @@ export function isSecure() {
   return window.isSecureContext === true;
 }
 
+import { L } from './i18n.js';
+
 export function browserLabel() {
   const ua = navigator.userAgent;
   if (/CriOS/.test(ua)) return 'Chrome (iOS)';
@@ -55,5 +57,5 @@ export function browserLabel() {
   if (/iPhone|iPad|iPod/.test(ua)) return 'Safari (iOS)';
   if (/Chrome/.test(ua)) return 'Chrome';
   if (/Safari/.test(ua)) return 'Safari';
-  return 'その他';
+  return L('Other', 'その他');
 }

@@ -3,6 +3,8 @@
    バースト用の LoopPlayer と同じ呼び方（refresh / pause / play / toggle / playing）ができるので、
    main.js は「いまのプレイヤー」を差し替えるだけで済む。 */
 
+import { L } from './i18n.js';
+
 const DRAW_INTERVAL_MS = 40;   // 描く間隔の下限（24fps相当）。フィルターとブラウン管を毎コマかけるので、これ以上は描かない
 const SLOW_DRAW_MS = 55;       // 1コマの描画がこれより長い状態が続いたら、プレビューの解像度を下げる
 const MIN_PREVIEW_SCALE = 0.45;
@@ -41,7 +43,7 @@ export async function settleVideoElement(v, durationHint = 0) {
     meta.then((r) => (r ? 'ok' : 'timeout')),
     failed.then((r) => (r ? 'error' : 'timeout'))
   ]);
-  if (ok !== 'ok' || !v.videoWidth) throw new Error('動画を読み込めませんでした。');
+  if (ok !== 'ok' || !v.videoWidth) throw new Error(L('Couldn\u2019t load the video.', '動画を読み込めませんでした。'));
 
   // MediaRecorder が作った webm は長さが不明(Infinity)なことがある。終端まで飛ばして長さを確定させる
   if (!isFinite(v.duration)) {
@@ -79,7 +81,10 @@ export class VideoPlayer {
     videoEl.addEventListener('error', () => {
       if (this.active && this.onProblem) {
         const e = videoEl.error;
-        this.onProblem('動画の再生でエラーが出ました（コード ' + (e ? e.code : '?') + '）。');
+        this.onProblem(L(
+          'A video playback error occurred (code ' + (e ? e.code : '?') + ').',
+          '動画の再生でエラーが出ました（コード ' + (e ? e.code : '?') + '）。'
+        ));
       }
     });
     videoEl.addEventListener('pause', () => {
@@ -202,7 +207,7 @@ export class VideoPlayer {
       ok = await this._tryPlay();
     }
     if (!ok) {
-      if (this.onProblem) this.onProblem('再生を始められませんでした。「再生」を押してください。');
+      if (this.onProblem) this.onProblem(L('Couldn\u2019t start playback. Please tap \u201cPlay\u201d.', '再生を始められませんでした。「再生」を押してください。'));
       return false;
     }
     this._setPlaying(true);
@@ -227,7 +232,10 @@ export class VideoPlayer {
       await this.play();
       setTimeout(() => {
         if (this.playing && !v.paused && v.currentTime === t0 && this.onProblem) {
-          this.onProblem('再生が進みません（読み込み状態 ' + v.readyState + '）。いちど停止して、もう一度「再生」を押してください。');
+          this.onProblem(L(
+            'Playback isn\u2019t advancing (ready state ' + v.readyState + '). Please stop and tap \u201cPlay\u201d again.',
+            '再生が進みません（読み込み状態 ' + v.readyState + '）。いちど停止して、もう一度「再生」を押してください。'
+          ));
         }
       }, 2000);
     }, 2000);

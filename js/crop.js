@@ -2,7 +2,7 @@
    元フレームには一切触らない。表示と書き出しのときだけ矩形を計算する。 */
 
 export const ASPECTS = [
-  { id: 'src',  label: 'そのまま', ratio: null },
+  { id: 'src',  label: { en: 'Original', ja: 'そのまま' }, ratio: null },
   { id: '4x3',  label: '4:3',     ratio: 4 / 3 },
   { id: '1x1',  label: '1:1',     ratio: 1 },
   { id: '3x4',  label: '3:4',     ratio: 3 / 4 },

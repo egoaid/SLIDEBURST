@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <meta name="theme-color" content="#12161c">
-<meta name="description" content="一瞬の横移動で、止まった人が立体的に動き出す。iPhoneの1眼で撮る多視点ループカメラ。">
-<title>SLIDEBURST — 動く立体写真カメラ</title>
+<meta name="description" content="A quick sideways slide turns a still moment into a 3D-looking loop. A multi-view loop camera shot with one iPhone lens.">
+<title>SLIDEBURST — moving 3D photo camera</title>
 
 <link rel="icon" href="./icons/favicon-32.png" sizes="32x32">
 <link rel="icon" href="./icons/favicon-16.png" sizes="16x16">
@@ -14,8 +14,8 @@
 <meta name="apple-mobile-web-app-title" content="SLIDEBURST">
 
 <meta property="og:type" content="website">
-<meta property="og:title" content="SLIDEBURST — 動く立体写真カメラ">
-<meta property="og:description" content="一瞬の横移動で、止まった人が立体的に動き出す。iPhoneの1眼で撮る多視点ループカメラ。">
+<meta property="og:title" content="SLIDEBURST — moving 3D photo camera">
+<meta property="og:description" content="A quick sideways slide turns a still moment into a 3D-looking loop. A multi-view loop camera shot with one iPhone lens.">
 <meta property="og:url" content="https://egoaid.github.io/SLIDEBURST/">
 <meta property="og:image" content="https://egoaid.github.io/SLIDEBURST/icons/og-image.png">
 <meta name="twitter:card" content="summary_large_image">
@@ -38,7 +38,13 @@
     <span class="wordmark__lenses" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
     <span class="wordmark__name">SLIDEBURST</span>
   </div>
-  <p class="topbar__note" id="envNote">環境を確認中…</p>
+  <div class="topbar__right">
+    <div class="langSwitch" id="langSwitch" role="group" data-i18n-aria-label="lang.label" aria-label="Language">
+      <button type="button" class="langSwitch__btn" data-lang="en" aria-pressed="true">EN</button>
+      <button type="button" class="langSwitch__btn" data-lang="ja" aria-pressed="false">JA</button>
+    </div>
+    <p class="topbar__note" id="envNote" data-i18n="env.checking">Checking your environment…</p>
+  </div>
 </header>
 
 <main>
@@ -49,7 +55,7 @@
     <div class="stage" id="stage">
       <video id="preview" playsinline muted autoplay disablepictureinpicture></video>
       <div class="stage__guide" aria-hidden="true">
-        <span class="stage__arrow">カメラを水平に横へ滑らせる</span>
+        <span class="stage__arrow" data-i18n="camera.slideGuide">Slide the camera sideways, level</span>
       </div>
       <div class="stage__frameGuide" id="frameGuide" hidden aria-hidden="true">
         <div class="stage__frameGuideDim" id="dimTop"></div>
@@ -67,18 +73,18 @@
       </div>
       <div class="stage__countdown" id="countdown" hidden aria-hidden="true">
         <span class="stage__countdownNum" id="countdownNum">3</span>
-        <button class="stage__countdownCancel" id="countdownCancel" type="button">キャンセル</button>
+        <button class="stage__countdownCancel" id="countdownCancel" type="button" data-i18n="camera.cancel">Cancel</button>
       </div>
       <div class="stage__blocker" id="blocker">
-        <p class="stage__blockerText" id="blockerText">カメラを起動すると撮影できます。</p>
-        <button class="btn btn--primary" id="startCamera" type="button">カメラを起動</button>
+        <p class="stage__blockerText" id="blockerText" data-i18n="camera.blockerText">Start the camera to begin shooting.</p>
+        <button class="btn btn--primary" id="startCamera" type="button" data-i18n="camera.start">Start camera</button>
       </div>
     </div>
 
     <div class="shutterRow">
-      <button class="iconBtn" id="flipCamera" type="button" aria-label="インカメラとアウトカメラを切り替え">
+      <button class="iconBtn" id="flipCamera" type="button" data-i18n-aria-label="camera.flipLabel" aria-label="Switch between front and back camera">
         <span class="iconBtn__glyph" aria-hidden="true">⇄</span>
-        <span class="iconBtn__text" id="facingLabel">アウト</span>
+        <span class="iconBtn__text" id="facingLabel" data-i18n="camera.out">Back</span>
       </button>
 
       <button class="shutter" id="shutter" type="button" disabled>
@@ -89,53 +95,53 @@
 
       <button class="iconBtn" id="toResult" type="button">
         <span class="iconBtn__glyph" aria-hidden="true">▤</span>
-        <span class="iconBtn__text" id="toResultText">作品</span>
+        <span class="iconBtn__text" id="toResultText" data-i18n="camera.works">Works</span>
       </button>
     </div>
 
-    <p class="status" id="status" role="status">撮影時間を選んで、シャッターと同時にカメラを横へ滑らせてください。</p>
+    <p class="status" id="status" role="status">Choose a capture time, then slide the camera sideways the moment you tap the shutter.</p>
 
     <div class="panel">
       <fieldset class="field">
-        <legend class="field__label">撮影モード</legend>
-        <div class="chips" id="captureModeChips" role="radiogroup" aria-label="撮影モード"></div>
+        <legend class="field__label" data-i18n="camera.mode">Capture mode</legend>
+        <div class="chips" id="captureModeChips" role="radiogroup" data-i18n-aria-label="camera.mode" aria-label="Capture mode"></div>
       </fieldset>
 
       <fieldset class="field" id="durationField">
-        <legend class="field__label">撮影時間</legend>
-        <div class="chips" id="durationChips" role="radiogroup" aria-label="撮影時間"></div>
+        <legend class="field__label" data-i18n="camera.duration">Capture time</legend>
+        <div class="chips" id="durationChips" role="radiogroup" data-i18n-aria-label="camera.duration" aria-label="Capture time"></div>
       </fieldset>
 
       <div class="field" id="videoModeHint" hidden>
-        <p class="hint">録画は無加工のまま保存されます。フィルター・縦横比・文字は、録画したあとの加工画面で、バースト撮影と同じように付けられます。長さの上限はありません。</p>
+        <p class="hint">Recording is saved untouched. You can add filters, aspect ratio, and text afterwards on the edit screen, the same way as burst shots. There is no length limit.</p>
       </div>
 
       <fieldset class="field">
-        <legend class="field__label">セルフタイマー</legend>
-        <div class="chips" id="timerChips" role="radiogroup" aria-label="セルフタイマー"></div>
+        <legend class="field__label" data-i18n="camera.selfTimer">Self-timer</legend>
+        <div class="chips" id="timerChips" role="radiogroup" data-i18n-aria-label="camera.selfTimer" aria-label="Self-timer"></div>
       </fieldset>
 
       <fieldset class="field">
-        <legend class="field__label">構図ガイド（撮影範囲は変わりません）</legend>
-        <div class="chips" id="guideChips" role="radiogroup" aria-label="構図ガイド"></div>
+        <legend class="field__label" data-i18n="camera.guide">Framing guide (doesn’t change what’s captured)</legend>
+        <div class="chips" id="guideChips" role="radiogroup" data-i18n-aria-label="camera.guide" aria-label="Framing guide"></div>
       </fieldset>
 
       <div class="field field--row">
         <label class="select">
-          <span class="select__label">記録解像度</span>
+          <span class="select__label" data-i18n="camera.recResolution">Recording resolution</span>
           <select id="scaleSelect">
-            <option value="1">センサー出力のまま</option>
+            <option value="1" data-i18n="camera.resSensor">Sensor output, as-is</option>
             <option value="0.75">75%</option>
-            <option value="0.5" selected>50%（おすすめ）</option>
+            <option value="0.5" selected data-i18n="camera.resRecommended">50% (recommended)</option>
             <option value="0.35">35%</option>
           </select>
         </label>
         <label class="select">
-          <span class="select__label">ストリーム設定</span>
+          <span class="select__label" data-i18n="camera.streamSettings">Stream settings</span>
           <select id="modeSelect">
-            <option value="fps" selected>フレームレート優先 1280×720 / 60</option>
-            <option value="res">解像度優先 1920×1080 / 30</option>
-            <option value="max">上限なし（端末まかせ）</option>
+            <option value="fps" selected data-i18n="camera.streamFps">Frame rate priority — 1280×720 / 60</option>
+            <option value="res" data-i18n="camera.streamRes">Resolution priority — 1920×1080 / 30</option>
+            <option value="max" data-i18n="camera.streamMax">No limit (device decides)</option>
           </select>
         </label>
       </div>
@@ -153,254 +159,254 @@
     </div>
 
     <div class="quickRow">
-      <button class="btn btn--ghost" id="backToCamera" type="button">撮り直す</button>
-      <button class="btn btn--ghost" id="playToggle" type="button">停止</button>
-      <button class="btn btn--primary" id="quickSave" type="button">保存・共有</button>
+      <button class="btn btn--ghost" id="backToCamera" type="button" data-i18n="result.retake">Retake</button>
+      <button class="btn btn--ghost" id="playToggle" type="button" data-i18n="result.stop">Stop</button>
+      <button class="btn btn--primary" id="quickSave" type="button" data-i18n="result.saveShare">Save & share</button>
     </div>
 
     <nav class="tabs" id="tabs" role="tablist">
-      <button class="tab" role="tab" data-tab="play" aria-selected="true">再生</button>
-      <button class="tab" role="tab" data-tab="look" aria-selected="false">加工</button>
-      <button class="tab" role="tab" data-tab="text" aria-selected="false">テキスト</button>
-      <button class="tab" role="tab" data-tab="draw" aria-selected="false">落書き</button>
-      <button class="tab" role="tab" data-tab="save" aria-selected="false">保存</button>
-      <button class="tab" role="tab" data-tab="lib" aria-selected="false">作品</button>
-      <button class="tab" role="tab" data-tab="data" data-only="burst" aria-selected="false">検証</button>
+      <button class="tab" role="tab" data-tab="play" aria-selected="true" data-i18n="tab.play">Play</button>
+      <button class="tab" role="tab" data-tab="look" aria-selected="false" data-i18n="tab.look">Look</button>
+      <button class="tab" role="tab" data-tab="text" aria-selected="false" data-i18n="tab.text">Text</button>
+      <button class="tab" role="tab" data-tab="draw" aria-selected="false" data-i18n="tab.draw">Draw</button>
+      <button class="tab" role="tab" data-tab="save" aria-selected="false" data-i18n="tab.save">Save</button>
+      <button class="tab" role="tab" data-tab="lib" aria-selected="false" data-i18n="tab.lib">Library</button>
+      <button class="tab" role="tab" data-tab="data" data-only="burst" aria-selected="false" data-i18n="tab.data">Diagnostics</button>
     </nav>
 
     <!-- 再生 -->
     <div class="tabPanel" data-panel="play">
       <fieldset class="field" data-only="burst">
-        <legend class="field__label">使うコマ数</legend>
-        <div class="chips" id="frameModeChips" role="radiogroup" aria-label="コマ数"></div>
+        <legend class="field__label" data-i18n="play.frameCount">Frames used</legend>
+        <div class="chips" id="frameModeChips" role="radiogroup" data-i18n-aria-label="play.frameCount" aria-label="Frames used"></div>
       </fieldset>
 
       <div class="field field--row" data-only="burst">
         <label class="range">
-          <span class="range__label">再生速度 <output id="fpsOut">10</output> fps</span>
+          <span class="range__label" data-i18n="play.speed">Playback speed</span> <output id="fpsOut">10</output> fps
           <input type="range" id="fpsRange" min="2" max="30" step="1" value="10">
         </label>
         <label class="toggle">
           <input type="checkbox" id="pingpongToggle" checked>
-          <span>往復再生（1→N→2）</span>
+          <span data-i18n="play.pingpong">Ping-pong playback (1→N→2)</span>
         </label>
       </div>
 
       <div class="field" data-only="video">
         <label class="range">
-          <span class="range__label">再生位置 <output id="videoTimeOut">0:00 / 0:00</output></span>
+          <span class="range__label" data-i18n="play.position">Position</span> <output id="videoTimeOut">0:00 / 0:00</output>
           <input type="range" id="videoSeekRange" min="0" max="1000" step="1" value="0">
         </label>
         <div class="scrubRow">
-          <button class="btn btn--ghost" id="videoPrevFrame" type="button">◀ 前のコマ</button>
-          <button class="btn btn--ghost" id="videoNextFrame" type="button">次のコマ ▶</button>
+          <button class="btn btn--ghost" id="videoPrevFrame" type="button" data-i18n="play.prevFrame">◀ Previous frame</button>
+          <button class="btn btn--ghost" id="videoNextFrame" type="button" data-i18n="play.nextFrame">Next frame ▶</button>
         </div>
         <label class="toggle">
           <input type="checkbox" id="videoSoundToggle" checked>
-          <span>音を出して再生する</span>
+          <span data-i18n="play.soundOn">Play with sound</span>
         </label>
       </div>
 
       <div class="field" data-only="burst">
         <label class="range">
-          <span class="range__label">コマ送り <output id="scrubOut">1 / 1</output></span>
+          <span class="range__label" data-i18n="play.scrub">Scrub</span> <output id="scrubOut">1 / 1</output>
           <input type="range" id="scrubRange" min="0" max="0" step="1" value="0">
         </label>
         <div class="scrubRow">
-          <button class="btn btn--ghost" id="prevFrame" type="button">◀ 前</button>
-          <button class="btn btn--ghost" id="nextFrame" type="button">次 ▶</button>
+          <button class="btn btn--ghost" id="prevFrame" type="button" data-i18n="play.prev">◀ Prev</button>
+          <button class="btn btn--ghost" id="nextFrame" type="button" data-i18n="play.next">Next ▶</button>
         </div>
       </div>
 
       <fieldset class="field">
-        <legend class="field__label">作品の縦横比</legend>
-        <div class="chips" id="aspectChips" role="radiogroup" aria-label="作品の縦横比"></div>
+        <legend class="field__label" data-i18n="play.aspect">Aspect ratio</legend>
+        <div class="chips" id="aspectChips" role="radiogroup" data-i18n-aria-label="play.aspect" aria-label="Aspect ratio"></div>
         <label class="range">
-          <span class="range__label">切り出す位置 <output id="offsetOut">中央</output></span>
+          <span class="range__label" data-i18n="play.cropOffset">Crop position</span> <output id="offsetOut">Center</output>
           <input type="range" id="offsetRange" min="0" max="100" step="1" value="50">
         </label>
-        <p class="hint">元のフレームはそのまま残るので、あとから何度でも切り直せます。</p>
+        <p class="hint" data-i18n="play.cropHint">The original frames stay untouched, so you can re-crop anytime.</p>
       </fieldset>
     </div>
 
     <!-- 加工 -->
     <div class="tabPanel" data-panel="look" hidden>
       <fieldset class="field">
-        <legend class="field__label">フィルター</legend>
-        <div class="chips chips--filters" id="filterChips" role="radiogroup" aria-label="フィルター"></div>
+        <legend class="field__label" data-i18n="look.filter">Filter</legend>
+        <div class="chips chips--filters" id="filterChips" role="radiogroup" data-i18n-aria-label="look.filter" aria-label="Filter"></div>
       </fieldset>
 
       <div class="field">
         <label class="range">
-          <span class="range__label">フィルターの強さ <output id="intensityOut">100</output>%</span>
+          <span class="range__label" data-i18n="look.intensity">Filter strength</span> <output id="intensityOut">100</output>%
           <input type="range" id="intensityRange" min="0" max="150" step="5" value="100">
         </label>
       </div>
 
       <div class="advancedToggle" id="advancedToggleWrap">
-        <button class="btn btn--ghost" id="advancedToggle" type="button" aria-expanded="false">
-          くわしく調整する
+        <button class="btn btn--ghost" id="advancedToggle" type="button" aria-expanded="false" data-i18n="look.advanced">
+          Fine-tune
         </button>
       </div>
       <fieldset class="field advancedPanel" id="advancedPanel" hidden>
-        <legend class="field__label">くわしい設定</legend>
+        <legend class="field__label" data-i18n="look.advancedTitle">Fine settings</legend>
         <fieldset class="field" id="cinemaVariantField" hidden>
-          <legend class="field__label">色の方式</legend>
-          <div class="chips" id="cinemaVariantChips" role="radiogroup" aria-label="映画の色の方式"></div>
+          <legend class="field__label" data-i18n="look.colorMode">Color process</legend>
+          <div class="chips" id="cinemaVariantChips" role="radiogroup" data-i18n-aria-label="look.colorMode" aria-label="Color process"></div>
         </fieldset>
         <div class="advancedGrid" id="advancedGrid"></div>
-        <button class="btn btn--ghost" id="advancedReset" type="button">強さの設定に戻す</button>
+        <button class="btn btn--ghost" id="advancedReset" type="button" data-i18n="look.advancedReset">Reset to strength control</button>
       </fieldset>
 
       <fieldset class="field">
-        <legend class="field__label">ブラウン管</legend>
+        <legend class="field__label" data-i18n="look.crt">CRT television</legend>
         <label class="toggle">
           <input type="checkbox" id="crtToggle">
-          <span>ブラウン管テレビに映す</span>
+          <span data-i18n="look.crtToggle">Show on a CRT television</span>
         </label>
         <label class="range">
-          <span class="range__label">強さ <output id="crtOut">100</output>%</span>
+          <span class="range__label" data-i18n="look.crtStrength">Strength</span> <output id="crtOut">100</output>%
           <input type="range" id="crtRange" min="20" max="150" step="5" value="100">
         </label>
-        <p class="hint">VHS や Hi8 と重ねると、テレビで再生した映像のようになります。4:3 と相性がよいです。</p>
+        <p class="hint" data-i18n="look.crtHint">Combine with VHS or Hi8 for a played-back-on-TV feel. Pairs well with 4:3.</p>
       </fieldset>
     </div>
 
     <!-- テキスト -->
     <div class="tabPanel" data-panel="text" hidden>
-      <p class="hint">ここで入れた文字は、フィルターやブラウン管の「下」に敷かれます。VHSのノイズがかかり、ブラウン管の湾曲にそって曲がります。</p>
+      <p class="hint" data-i18n="text.hint">Anything you add here sits underneath the filter and CRT layers — VHS noise runs over it, and CRT curvature bends it too.</p>
 
       <fieldset class="field">
-        <legend class="field__label">日付の焼き込み</legend>
+        <legend class="field__label" data-i18n="text.dateStamp">Date stamp</legend>
         <div class="stampRow">
           <label class="toggle">
             <input type="checkbox" id="stampToggle">
-            <span>表示する</span>
+            <span data-i18n="text.show">Show</span>
           </label>
-          <input class="textInput" id="stampText" type="text" inputmode="text" maxlength="24" aria-label="焼き込む日付">
+          <input class="textInput" id="stampText" type="text" inputmode="text" maxlength="24" aria-label="Date stamp text">
         </div>
-        <div class="chips" id="stampColorChips" role="radiogroup" aria-label="日付の色"></div>
-        <p class="hint">数字は当時のカメラと同じ7セグメント表示で焼き込まれます。文字は自由に書き換えられます。</p>
+        <div class="chips" id="stampColorChips" role="radiogroup" aria-label="Date stamp color"></div>
+        <p class="hint" data-i18n="text.dateHint">Digits are rendered in the same 7-segment style old cameras used. The text itself is free to edit.</p>
       </fieldset>
 
       <fieldset class="field">
-        <legend class="field__label">VHS風の文字</legend>
+        <legend class="field__label" data-i18n="text.vhsText">VHS-style text</legend>
 
         <div class="stampRow">
           <label class="toggle">
             <input type="checkbox" id="osdTitleToggle">
-            <span>タイトルを表示する</span>
+            <span data-i18n="text.showTitle">Show title</span>
           </label>
-          <input class="textInput" id="osdTitleText" type="text" inputmode="text" maxlength="30" aria-label="タイトルの文字" placeholder="タイトルを入力">
+          <input class="textInput" id="osdTitleText" type="text" inputmode="text" maxlength="30" aria-label="Title text" data-i18n-placeholder="text.titlePlaceholder" placeholder="Enter a title">
         </div>
-        <p class="hint">フォント</p>
-        <div class="chips" id="osdFontChips" role="radiogroup" aria-label="タイトルのフォント"></div>
-        <p class="hint">文字の色</p>
-        <div class="chips" id="osdColorChips" role="radiogroup" aria-label="タイトルの色"></div>
+        <p class="hint" data-i18n="text.font">Font</p>
+        <div class="chips" id="osdFontChips" role="radiogroup" aria-label="Title font"></div>
+        <p class="hint" data-i18n="text.color">Text color</p>
+        <div class="chips" id="osdColorChips" role="radiogroup" aria-label="Title color"></div>
         <label class="range">
-          <span class="range__label">文字の大きさ <output id="osdSizeOut">100</output>%</span>
+          <span class="range__label" data-i18n="text.size">Text size</span> <output id="osdSizeOut">100</output>%
           <input type="range" id="osdSizeRange" min="50" max="200" step="5" value="100">
         </label>
 
         <label class="toggle">
           <input type="checkbox" id="osdOutlineToggle" checked>
-          <span>縁取りする</span>
+          <span data-i18n="text.outline">Outline</span>
         </label>
-        <div class="chips" id="osdOutlineColorChips" role="radiogroup" aria-label="縁取りの色"></div>
+        <div class="chips" id="osdOutlineColorChips" role="radiogroup" aria-label="Outline color"></div>
         <label class="range">
-          <span class="range__label">縁取りの太さ <output id="osdOutlineWidthOut">100</output>%</span>
+          <span class="range__label" data-i18n="text.outlineWidth">Outline thickness</span> <output id="osdOutlineWidthOut">100</output>%
           <input type="range" id="osdOutlineWidthRange" min="20" max="200" step="10" value="100">
         </label>
 
-        <p class="hint">タイトルは、プレビューをなぞると好きな位置へ動かせます。</p>
-        <button class="btn btn--ghost" id="osdTitleReset" type="button">タイトルの位置を初期位置に戻す</button>
+        <p class="hint" data-i18n="text.dragHint">Drag the title anywhere on the preview to move it.</p>
+        <button class="btn btn--ghost" id="osdTitleReset" type="button" data-i18n="text.resetPosition">Reset title position</button>
 
         <div class="field field--row">
           <label class="toggle">
             <input type="checkbox" id="osdTransportToggle">
-            <span>左上に「▶ PLAY」を表示する</span>
+            <span data-i18n="text.showPlay">Show “▶ PLAY” top-left</span>
           </label>
           <label class="toggle">
             <input type="checkbox" id="osdCounterToggle">
-            <span>右下にテープカウンターを表示する</span>
+            <span data-i18n="text.showCounter">Show tape counter bottom-right</span>
           </label>
         </div>
-        <p class="hint">当時のビデオデッキがテープに焼き込んでいたような文字を、映像に重ねます。カウンターは「0:00:00」（時:分:秒）で、再生・書き出しのあいだ実際に進みます。</p>
+        <p class="hint" data-i18n="text.overlayHint">Overlays text the way an old VCR burned it onto tape. The counter reads “0:00:00” (h:mm:ss) and actually advances during playback and export.</p>
       </fieldset>
     </div>
 
     <!-- 落書き -->
     <div class="tabPanel" data-panel="draw" hidden>
-      <p class="hint">プレビューの上に直接描けます。描いたものは全コマに乗ります。</p>
-      <div class="toolRow" id="penColors" role="radiogroup" aria-label="ペンの色"></div>
+      <p class="hint" data-i18n="draw.hint">Draw right on the preview. Whatever you draw appears on every frame.</p>
+      <div class="toolRow" id="penColors" role="radiogroup" aria-label="Pen color"></div>
       <div class="toolRow">
         <label class="range">
-          <span class="range__label">太さ <output id="penSizeOut">8</output></span>
+          <span class="range__label" data-i18n="draw.size">Size</span> <output id="penSizeOut">8</output>
           <input type="range" id="penSize" min="2" max="40" step="1" value="8">
         </label>
       </div>
-      <div class="emojiGrid" id="emojiGrid" aria-label="スタンプ"></div>
+      <div class="emojiGrid" id="emojiGrid" aria-label="Stickers"></div>
       <div class="toolRow toolRow--actions">
-        <button class="btn btn--ghost" id="undoDraw" type="button">ひとつ戻す</button>
-        <button class="btn btn--ghost" id="clearDraw" type="button">全部消す</button>
+        <button class="btn btn--ghost" id="undoDraw" type="button" data-i18n="draw.undo">Undo</button>
+        <button class="btn btn--ghost" id="clearDraw" type="button" data-i18n="draw.clear">Clear all</button>
       </div>
     </div>
 
     <!-- 保存 -->
     <div class="tabPanel" data-panel="save" hidden>
       <fieldset class="field">
-        <legend class="field__label">形式</legend>
-        <div class="chips" id="formatChips" role="radiogroup" aria-label="保存形式"></div>
+        <legend class="field__label" data-i18n="save.format">Format</legend>
+        <div class="chips" id="formatChips" role="radiogroup" aria-label="Save format"></div>
         <p class="hint" id="formatHint"></p>
       </fieldset>
 
       <fieldset class="field" data-only="burst">
-        <legend class="field__label">動画の長さ</legend>
-        <div class="chips" id="durationExportChips" role="radiogroup" aria-label="動画の長さ"></div>
+        <legend class="field__label" data-i18n="save.videoLength">Video length</legend>
+        <div class="chips" id="durationExportChips" role="radiogroup" aria-label="Video length"></div>
         <p class="hint" id="loopInfo"></p>
       </fieldset>
 
       <fieldset class="field">
-        <legend class="field__label">書き出し枠</legend>
-        <div class="chips" id="socialChips" role="radiogroup" aria-label="書き出し枠"></div>
-        <div class="chips" id="backgroundChips" role="radiogroup" aria-label="余白の色"></div>
-        <p class="hint">作品は切らずに、この枠の中へ収めます。元の作品は変わりません。</p>
+        <legend class="field__label" data-i18n="save.exportFrame">Export frame</legend>
+        <div class="chips" id="socialChips" role="radiogroup" aria-label="Export frame"></div>
+        <div class="chips" id="backgroundChips" role="radiogroup" aria-label="Padding color"></div>
+        <p class="hint" data-i18n="save.frameHint">Your work is fit inside this frame without cropping it. The original work is unchanged.</p>
       </fieldset>
 
       <div class="field field--row">
         <label class="select">
-          <span class="select__label">サイズ</span>
+          <span class="select__label" data-i18n="save.size">Size</span>
           <select id="exportSize">
-            <option value="480">480px（軽い）</option>
-            <option value="720" selected>720px（標準）</option>
-            <option value="1080">元のまま</option>
+            <option value="480" data-i18n="save.sizeLight">480px (lighter)</option>
+            <option value="720" selected data-i18n="save.sizeStandard">720px (standard)</option>
+            <option value="1080" data-i18n="save.sizeOriginal">Original</option>
           </select>
         </label>
       </div>
 
-      <button class="btn btn--primary btn--wide" id="exportBtn" type="button">作って保存・共有</button>
-      <button class="btn btn--ghost btn--wide" id="exportCancel" type="button" hidden>書き出しを中止</button>
+      <button class="btn btn--primary btn--wide" id="exportBtn" type="button" data-i18n="save.exportBtn">Create & save / share</button>
+      <button class="btn btn--ghost btn--wide" id="exportCancel" type="button" hidden data-i18n="save.exportCancel">Cancel export</button>
       <div class="exportStatus" id="exportStatus" role="status"></div>
       <div class="exportResult" id="exportResult" hidden>
-        <a class="btn btn--ghost btn--wide" id="downloadLink" download>ダウンロード</a>
-        <button class="btn btn--primary btn--wide" id="shareBtn" type="button">共有して写真に保存</button>
+        <a class="btn btn--ghost btn--wide" id="downloadLink" download data-i18n="save.download">Download</a>
+        <button class="btn btn--primary btn--wide" id="shareBtn" type="button" data-i18n="save.share">Share & save to photos</button>
       </div>
     </div>
 
     <!-- 作品 -->
     <div class="tabPanel" data-panel="lib" hidden>
-      <p class="hint" id="libNote">撮った作品はこの端末の中だけに保存されます。どこにも送信されません。</p>
+      <p class="hint" id="libNote" data-i18n="lib.note">Saved works stay on this device only. Nothing is sent anywhere.</p>
       <div class="library" id="library"></div>
     </div>
 
     <!-- 検証 -->
     <div class="tabPanel" data-panel="data" hidden>
-      <h2 class="sectionTitle">取得フレーム <span id="stripCount"></span></h2>
+      <h2 class="sectionTitle"><span data-i18n="data.framesTitle">Captured frames</span> <span id="stripCount"></span></h2>
       <div class="strip" id="strip"></div>
-      <h2 class="sectionTitle">計測結果</h2>
+      <h2 class="sectionTitle" data-i18n="data.metricsTitle">Measurements</h2>
       <dl class="metrics" id="metrics"></dl>
       <p class="metrics__verdict" id="verdict"></p>
-      <button class="btn btn--ghost btn--wide" id="copyMetrics" type="button">計測結果をコピー</button>
+      <button class="btn btn--ghost btn--wide" id="copyMetrics" type="button" data-i18n="data.copy">Copy measurements</button>
     </div>
 
   </section>
@@ -409,7 +415,7 @@
 
 <footer class="footer">
   <span id="buildTag"></span>
-  <span>© 2026 egoaid</span>
+  <span data-i18n="footer.copyright">© 2026 egoaid</span>
 </footer>
 
 <!-- 加工中に本体の映像が画面外へ出たら、ここに小さく浮かせて追従させる -->
